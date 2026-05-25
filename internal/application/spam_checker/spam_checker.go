@@ -83,6 +83,7 @@ func (i *SpamCheckerService) processNewChat(a dto.AccountDTO) error {
 		if err != nil {
 			return err
 		}
+		userChat = userChat.WithID(userAccount.UserId)
 		return i.repos.chatRepo.Create(userChat)
 	} else if err != nil {
 		return err
