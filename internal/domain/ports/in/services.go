@@ -8,4 +8,7 @@ type UserSpamCheckerPort interface {
 
 type UserWhiteListCheckerPort interface {
 	AddToWhiteList(a dto.AccountDTO) error
+	Get(userId int) (dto.AccountDTO, error)
+	GetAll() ([]dto.AccountDTO, error)
+	Delete(a dto.AccountDTO) error
 }

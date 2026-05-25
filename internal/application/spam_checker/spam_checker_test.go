@@ -348,6 +348,10 @@ func (f *fakeWhiteListRepository) Add(a account.Account) error {
 	return nil
 }
 
+func (f *fakeWhiteListRepository) GetAll() ([]account.Account, error) {
+	return nil, nil
+}
+
 func (f *fakeWhiteListRepository) Delete(a account.Account) error {
 	return nil
 }

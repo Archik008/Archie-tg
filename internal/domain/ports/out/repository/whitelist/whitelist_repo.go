@@ -5,7 +5,8 @@ import (
 )
 
 type UserWhiteListRepositoryPort interface {
-	Get(userId int) (account.Account, error)
 	Add(a account.Account) error
 	Delete(a account.Account) error
+	Get(userId int) (account.Account, error)
+	GetAll() ([]account.Account, error)
 }

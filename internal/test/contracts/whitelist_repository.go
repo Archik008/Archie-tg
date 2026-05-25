@@ -3,6 +3,7 @@ package contracts
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/archik008/archie-tg/internal/domain/entity/account"
@@ -54,6 +55,32 @@ func RunWhiteListRepositoryContractTests(t *testing.T, newRepo WhiteListReposito
 		}
 	})
 
+	t.Run("GetAll returns all stored accounts", func(t *testing.T) {
+		repo := newRepo(t)
+		first := account.NewAccount(211, "trusted-one")
+		second := account.NewAccount(212, "trusted-two")
+
+		if err := repo.Add(first); err != nil {
+			t.Fatalf("Add() first account error = %v", err)
+		}
+		if err := repo.Add(second); err != nil {
+			t.Fatalf("Add() second account error = %v", err)
+		}
+
+		got, err := repo.GetAll()
+		if err != nil {
+			t.Fatalf("GetAll() error = %v", err)
+		}
+
+		sortAccounts(got)
+		want := []account.Account{first, second}
+		sortAccounts(want)
+
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("GetAll() accounts mismatch: got %+v want %+v", got, want)
+		}
+	})
+
 	t.Run("Delete removes existing account", func(t *testing.T) {
 		repo := newRepo(t)
 		existing := account.NewAccount(203, "trusted")
@@ -77,6 +104,19 @@ func RunWhiteListRepositoryContractTests(t *testing.T, newRepo WhiteListReposito
 		err := repo.Delete(account.NewAccount(204, "missing"))
 		if !errors.Is(err, whitelistrepo.ErrAccountNotFound) {
 			t.Fatalf("Delete() missing error = %v, want %v", err, whitelistrepo.ErrAccountNotFound)
+		}
+	})
+}
+
+func sortAccounts(accs []account.Account) {
+	slices.SortFunc(accs, func(a, b account.Account) int {
+		switch {
+		case a.UserId < b.UserId:
+			return -1
+		case a.UserId > b.UserId:
+			return 1
+		default:
+			return 0
 		}
 	})
 }

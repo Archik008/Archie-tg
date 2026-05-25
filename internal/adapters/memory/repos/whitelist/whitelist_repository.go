@@ -43,6 +43,19 @@ func (i *InMemoryUserWhiteListRepository) Get(userId int) (account.Account, erro
 	return acc, nil
 }
 
+func (i *InMemoryUserWhiteListRepository) GetAll() ([]account.Account, error) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	accList := make([]account.Account, 0, len(i.users))
+
+	for _, acc := range i.users {
+		accList = append(accList, acc)
+	}
+
+	return accList, nil
+}
+
 func (i *InMemoryUserWhiteListRepository) Delete(a account.Account) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
