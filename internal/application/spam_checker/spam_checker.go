@@ -51,8 +51,12 @@ func NewSpamCheckerService(
 }
 
 func (i *SpamCheckerService) ProcessUser(a dto.AccountDTO) error {
-	if err := i.checkUserInWhiteList(a.UserID); err != nil {
+	inWhiteList, err := i.checkUserInWhiteList(a.UserID)
+	if err != nil {
 		return err
+	}
+	if inWhiteList {
+		return nil
 	}
 
 	if err := i.processNewChat(a); err != nil {
@@ -66,12 +70,15 @@ func (i *SpamCheckerService) ProcessUser(a dto.AccountDTO) error {
 	return nil
 }
 
-func (i *SpamCheckerService) checkUserInWhiteList(userId int) error {
+func (i *SpamCheckerService) checkUserInWhiteList(userId int) (bool, error) {
 	_, err := i.repos.whiteList.Get(userId)
-	if err != nil {
-		return err
+	if errors.Is(err, whitelist.ErrAccountNotFound) {
+		return false, nil
 	}
-	return nil
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (i *SpamCheckerService) processNewChat(a dto.AccountDTO) error {

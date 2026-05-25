@@ -1,0 +1,82 @@
+package contracts
+
+import (
+	"errors"
+	"reflect"
+	"testing"
+
+	"github.com/archik008/archie-tg/internal/domain/entity/account"
+	whitelistrepo "github.com/archik008/archie-tg/internal/domain/ports/out/repository/whitelist"
+)
+
+type WhiteListRepositoryFactory func(t *testing.T) whitelistrepo.UserWhiteListRepositoryPort
+
+func RunWhiteListRepositoryContractTests(t *testing.T, newRepo WhiteListRepositoryFactory) {
+	t.Helper()
+
+	t.Run("Add stores account and Get returns it", func(t *testing.T) {
+		repo := newRepo(t)
+		want := account.NewAccount(201, "trusted")
+
+		if err := repo.Add(want); err != nil {
+			t.Fatalf("Add() error = %v", err)
+		}
+
+		got, err := repo.Get(want.UserId)
+		if err != nil {
+			t.Fatalf("Get() error = %v", err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("Get() account mismatch: got %+v want %+v", got, want)
+		}
+	})
+
+	t.Run("Add returns ErrAccountAlreadyExists for duplicate users", func(t *testing.T) {
+		repo := newRepo(t)
+		existing := account.NewAccount(202, "trusted")
+
+		if err := repo.Add(existing); err != nil {
+			t.Fatalf("Add() first call error = %v", err)
+		}
+
+		err := repo.Add(existing)
+		if !errors.Is(err, whitelistrepo.ErrAccountAlreadyExists) {
+			t.Fatalf("Add() duplicate error = %v, want %v", err, whitelistrepo.ErrAccountAlreadyExists)
+		}
+	})
+
+	t.Run("Get returns ErrAccountNotFound for missing user", func(t *testing.T) {
+		repo := newRepo(t)
+
+		_, err := repo.Get(999)
+		if !errors.Is(err, whitelistrepo.ErrAccountNotFound) {
+			t.Fatalf("Get() missing error = %v, want %v", err, whitelistrepo.ErrAccountNotFound)
+		}
+	})
+
+	t.Run("Delete removes existing account", func(t *testing.T) {
+		repo := newRepo(t)
+		existing := account.NewAccount(203, "trusted")
+
+		if err := repo.Add(existing); err != nil {
+			t.Fatalf("Add() error = %v", err)
+		}
+		if err := repo.Delete(existing); err != nil {
+			t.Fatalf("Delete() error = %v", err)
+		}
+
+		_, err := repo.Get(existing.UserId)
+		if !errors.Is(err, whitelistrepo.ErrAccountNotFound) {
+			t.Fatalf("Get() after delete error = %v, want %v", err, whitelistrepo.ErrAccountNotFound)
+		}
+	})
+
+	t.Run("Delete returns ErrAccountNotFound for missing user", func(t *testing.T) {
+		repo := newRepo(t)
+
+		err := repo.Delete(account.NewAccount(204, "missing"))
+		if !errors.Is(err, whitelistrepo.ErrAccountNotFound) {
+			t.Fatalf("Delete() missing error = %v, want %v", err, whitelistrepo.ErrAccountNotFound)
+		}
+	})
+}

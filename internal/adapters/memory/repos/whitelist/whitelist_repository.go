@@ -33,7 +33,7 @@ func (i *InMemoryUserWhiteListRepository) Add(a account.Account) error {
 
 func (i *InMemoryUserWhiteListRepository) Get(userId int) (account.Account, error) {
 	i.mu.RLock()
-	defer i.mu.Unlock()
+	defer i.mu.RUnlock()
 
 	acc, ok := i.users[userId]
 	if !ok {
