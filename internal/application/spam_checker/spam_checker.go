@@ -1,6 +1,7 @@
 package spamchecker
 
 import (
+	"context"
 	"errors"
 
 	"github.com/archik008/archie-tg/internal/application/dto"
@@ -50,8 +51,8 @@ func NewSpamCheckerService(
 	}
 }
 
-func (i *SpamCheckerService) ProcessUser(a dto.AccountDTO) error {
-	inWhiteList, err := i.checkUserInWhiteList(a.UserID)
+func (i *SpamCheckerService) ProcessUser(ctx context.Context, a dto.AccountDTO) error {
+	inWhiteList, err := i.checkUserInWhiteList(ctx, a.UserID)
 	if err != nil {
 		return err
 	}
@@ -59,19 +60,19 @@ func (i *SpamCheckerService) ProcessUser(a dto.AccountDTO) error {
 		return nil
 	}
 
-	if err := i.processNewChat(a); err != nil {
+	if err := i.processNewChat(ctx, a); err != nil {
 		return err
 	}
 
-	if err := i.adapters.userBlocker.BlockUser(a.UserID); err != nil {
+	if err := i.adapters.userBlocker.BlockUser(ctx, a.UserID); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (i *SpamCheckerService) checkUserInWhiteList(userId int) (bool, error) {
-	_, err := i.repos.whiteList.Get(userId)
+func (i *SpamCheckerService) checkUserInWhiteList(ctx context.Context, userId int) (bool, error) {
+	_, err := i.repos.whiteList.Get(ctx, userId)
 	if errors.Is(err, whitelist.ErrAccountNotFound) {
 		return false, nil
 	}
@@ -81,8 +82,8 @@ func (i *SpamCheckerService) checkUserInWhiteList(userId int) (bool, error) {
 	return true, nil
 }
 
-func (i *SpamCheckerService) processNewChat(a dto.AccountDTO) error {
-	getChat, err := i.repos.chatRepo.Get(a.UserID)
+func (i *SpamCheckerService) processNewChat(ctx context.Context, a dto.AccountDTO) error {
+	getChat, err := i.repos.chatRepo.Get(ctx, a.UserID)
 
 	if errors.Is(err, chatPort.ErrChatNotFound) {
 		userAccount := account.NewAccount(a.UserID, a.Username)
@@ -91,15 +92,15 @@ func (i *SpamCheckerService) processNewChat(a dto.AccountDTO) error {
 			return err
 		}
 		userChat = userChat.WithID(userAccount.UserId)
-		return i.repos.chatRepo.Create(userChat)
+		return i.repos.chatRepo.Create(ctx, userChat)
 	} else if err != nil {
 		return err
 	}
 
-	if err := i.adapters.chatDeleter.DeleteChat(getChat.ID); err != nil {
+	if err := i.adapters.chatDeleter.DeleteChat(ctx, getChat.ID); err != nil {
 		return err
 	}
-	if err := i.repos.chatRepo.Delete(getChat); err != nil {
+	if err := i.repos.chatRepo.Delete(ctx, getChat); err != nil {
 		return err
 	}
 

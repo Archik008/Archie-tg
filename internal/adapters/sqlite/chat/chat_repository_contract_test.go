@@ -1,6 +1,7 @@
 package chat_test
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -14,7 +15,7 @@ func TestInSqliteChatRepositoryContract(t *testing.T) {
 		t.Helper()
 
 		repo := sqlitechat.NewInSqliteChatRepository(filepath.Join(t.TempDir(), "chat.db"))
-		if err := repo.Connect(); err != nil {
+		if err := repo.Connect(context.Background()); err != nil {
 			t.Fatalf("Connect() error = %v", err)
 		}
 		t.Cleanup(func() {

@@ -1,5 +1,7 @@
 package driven
 
+import "context"
+
 type UserBlocker interface {
-	BlockUser(userID int) error
+	BlockUser(ctx context.Context, userID int) error
 }

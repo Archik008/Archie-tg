@@ -1,6 +1,7 @@
 package whitelist
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"slices"
@@ -16,7 +17,7 @@ func TestAddToWhiteList_MapsDTOAndStoresAccount(t *testing.T) {
 		whiteListRepo: repo,
 	}
 
-	err := service.AddToWhiteList(dto.AccountDTO{
+	err := service.AddToWhiteList(context.Background(), dto.AccountDTO{
 		UserID:   15,
 		Username: "trusted-user",
 	})
@@ -40,7 +41,7 @@ func TestAddToWhiteList_PropagatesRepositoryError(t *testing.T) {
 		},
 	}
 
-	err := service.AddToWhiteList(dto.AccountDTO{
+	err := service.AddToWhiteList(context.Background(), dto.AccountDTO{
 		UserID:   15,
 		Username: "trusted-user",
 	})
@@ -57,7 +58,7 @@ func TestGet_MapsRepositoryAccountToDTO(t *testing.T) {
 		whiteListRepo: repo,
 	}
 
-	got, err := service.Get(22)
+	got, err := service.Get(context.Background(), 22)
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
@@ -82,7 +83,7 @@ func TestGet_PropagatesRepositoryError(t *testing.T) {
 		},
 	}
 
-	_, err := service.Get(22)
+	_, err := service.Get(context.Background(), 22)
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("Get() error = %v, want %v", err, expectedErr)
 	}
@@ -99,7 +100,7 @@ func TestGetAll_MapsRepositoryAccountsToDTOs(t *testing.T) {
 		whiteListRepo: repo,
 	}
 
-	got, err := service.GetAll()
+	got, err := service.GetAll(context.Background())
 	if err != nil {
 		t.Fatalf("GetAll() error = %v", err)
 	}
@@ -127,7 +128,7 @@ func TestGetAll_PropagatesRepositoryError(t *testing.T) {
 		},
 	}
 
-	_, err := service.GetAll()
+	_, err := service.GetAll(context.Background())
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("GetAll() error = %v, want %v", err, expectedErr)
 	}
@@ -139,7 +140,7 @@ func TestDelete_MapsDTOAndDeletesAccount(t *testing.T) {
 		whiteListRepo: repo,
 	}
 
-	err := service.Delete(dto.AccountDTO{
+	err := service.Delete(context.Background(), dto.AccountDTO{
 		UserID:   41,
 		Username: "trusted-user",
 	})
@@ -163,7 +164,7 @@ func TestDelete_PropagatesRepositoryError(t *testing.T) {
 		},
 	}
 
-	err := service.Delete(dto.AccountDTO{
+	err := service.Delete(context.Background(), dto.AccountDTO{
 		UserID:   41,
 		Username: "trusted-user",
 	})
@@ -185,7 +186,7 @@ type fakeWhiteListServiceRepository struct {
 	deleteCalls    []account.Account
 }
 
-func (f *fakeWhiteListServiceRepository) Get(userID int) (account.Account, error) {
+func (f *fakeWhiteListServiceRepository) Get(_ context.Context, userID int) (account.Account, error) {
 	f.getCalls = append(f.getCalls, userID)
 	if f.getErr != nil {
 		return account.Account{}, f.getErr
@@ -193,12 +194,12 @@ func (f *fakeWhiteListServiceRepository) Get(userID int) (account.Account, error
 	return f.getAccount, nil
 }
 
-func (f *fakeWhiteListServiceRepository) Add(a account.Account) error {
+func (f *fakeWhiteListServiceRepository) Add(_ context.Context, a account.Account) error {
 	f.addCalls = append(f.addCalls, a)
 	return f.addErr
 }
 
-func (f *fakeWhiteListServiceRepository) GetAll() ([]account.Account, error) {
+func (f *fakeWhiteListServiceRepository) GetAll(_ context.Context) ([]account.Account, error) {
 	f.getAllCalls++
 	if f.getAllErr != nil {
 		return nil, f.getAllErr
@@ -208,7 +209,7 @@ func (f *fakeWhiteListServiceRepository) GetAll() ([]account.Account, error) {
 	return accs, nil
 }
 
-func (f *fakeWhiteListServiceRepository) Delete(a account.Account) error {
+func (f *fakeWhiteListServiceRepository) Delete(_ context.Context, a account.Account) error {
 	f.deleteCalls = append(f.deleteCalls, a)
 	return f.deleteErr
 }

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"sync"
 
 	"github.com/archik008/archie-tg/internal/domain/aggregate/chat"
@@ -18,7 +19,7 @@ func NewInMemoryChatRepository() repo.ChatRepositoryPort {
 	}
 }
 
-func (i *InMemoryChatRepository) Create(c chat.Chat) error {
+func (i *InMemoryChatRepository) Create(_ context.Context, c chat.Chat) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
@@ -31,7 +32,7 @@ func (i *InMemoryChatRepository) Create(c chat.Chat) error {
 	return nil
 }
 
-func (i *InMemoryChatRepository) Get(chatId int) (chat.Chat, error) {
+func (i *InMemoryChatRepository) Get(_ context.Context, chatId int) (chat.Chat, error) {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 
@@ -43,7 +44,7 @@ func (i *InMemoryChatRepository) Get(chatId int) (chat.Chat, error) {
 	return getChat, nil
 }
 
-func (i *InMemoryChatRepository) Delete(c chat.Chat) error {
+func (i *InMemoryChatRepository) Delete(_ context.Context, c chat.Chat) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 

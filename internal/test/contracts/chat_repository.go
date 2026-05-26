@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
@@ -17,13 +18,14 @@ func RunChatRepositoryContractTests(t *testing.T, newRepo ChatRepositoryFactory)
 
 	t.Run("Create stores chat and Get returns it", func(t *testing.T) {
 		repo := newRepo(t)
+		ctx := context.Background()
 		want := mustNewChat(t, 101)
 
-		if err := repo.Create(want); err != nil {
+		if err := repo.Create(ctx, want); err != nil {
 			t.Fatalf("Create() error = %v", err)
 		}
 
-		got, err := repo.Get(want.ID)
+		got, err := repo.Get(ctx, want.ID)
 		if err != nil {
 			t.Fatalf("Get() error = %v", err)
 		}
@@ -34,13 +36,14 @@ func RunChatRepositoryContractTests(t *testing.T, newRepo ChatRepositoryFactory)
 
 	t.Run("Create returns ErrChatExists for duplicate IDs", func(t *testing.T) {
 		repo := newRepo(t)
+		ctx := context.Background()
 		existing := mustNewChat(t, 102)
 
-		if err := repo.Create(existing); err != nil {
+		if err := repo.Create(ctx, existing); err != nil {
 			t.Fatalf("Create() first call error = %v", err)
 		}
 
-		err := repo.Create(existing)
+		err := repo.Create(ctx, existing)
 		if !errors.Is(err, chatrepo.ErrChatExists) {
 			t.Fatalf("Create() duplicate error = %v, want %v", err, chatrepo.ErrChatExists)
 		}
@@ -48,8 +51,9 @@ func RunChatRepositoryContractTests(t *testing.T, newRepo ChatRepositoryFactory)
 
 	t.Run("Get returns ErrChatNotFound for missing chat", func(t *testing.T) {
 		repo := newRepo(t)
+		ctx := context.Background()
 
-		_, err := repo.Get(999)
+		_, err := repo.Get(ctx, 999)
 		if !errors.Is(err, chatrepo.ErrChatNotFound) {
 			t.Fatalf("Get() missing error = %v, want %v", err, chatrepo.ErrChatNotFound)
 		}
@@ -57,16 +61,17 @@ func RunChatRepositoryContractTests(t *testing.T, newRepo ChatRepositoryFactory)
 
 	t.Run("Delete removes previously stored chat", func(t *testing.T) {
 		repo := newRepo(t)
+		ctx := context.Background()
 		existing := mustNewChat(t, 103)
 
-		if err := repo.Create(existing); err != nil {
+		if err := repo.Create(ctx, existing); err != nil {
 			t.Fatalf("Create() error = %v", err)
 		}
-		if err := repo.Delete(existing); err != nil {
+		if err := repo.Delete(ctx, existing); err != nil {
 			t.Fatalf("Delete() error = %v", err)
 		}
 
-		_, err := repo.Get(existing.ID)
+		_, err := repo.Get(ctx, existing.ID)
 		if !errors.Is(err, chatrepo.ErrChatNotFound) {
 			t.Fatalf("Get() after delete error = %v, want %v", err, chatrepo.ErrChatNotFound)
 		}
@@ -74,8 +79,9 @@ func RunChatRepositoryContractTests(t *testing.T, newRepo ChatRepositoryFactory)
 
 	t.Run("Delete returns ErrChatNotFound for missing chat", func(t *testing.T) {
 		repo := newRepo(t)
+		ctx := context.Background()
 
-		err := repo.Delete(mustNewChat(t, 104))
+		err := repo.Delete(ctx, mustNewChat(t, 104))
 		if !errors.Is(err, chatrepo.ErrChatNotFound) {
 			t.Fatalf("Delete() missing error = %v, want %v", err, chatrepo.ErrChatNotFound)
 		}

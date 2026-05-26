@@ -20,18 +20,17 @@ func NewInSqliteChatRepository(dsn string) *InSqliteChatRepository {
 	return &InSqliteChatRepository{dsn: dsn}
 }
 
-func (i *InSqliteChatRepository) Connect() error {
+func (i *InSqliteChatRepository) Connect(ctx context.Context) error {
 	db, err := sql.Open("sqlite", i.dsn)
 	if err != nil {
 		return err
 	}
 
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return err
 	}
 
-	ctx := context.Background()
 	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
 		_ = db.Close()
 		return err
@@ -59,9 +58,7 @@ func (i *InSqliteChatRepository) Close() error {
 	return i.db.Close()
 }
 
-func (i *InSqliteChatRepository) Create(c chatagg.Chat) error {
-	ctx := context.Background()
-
+func (i *InSqliteChatRepository) Create(ctx context.Context, c chatagg.Chat) error {
 	tx, err := i.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -95,9 +92,7 @@ func (i *InSqliteChatRepository) Create(c chatagg.Chat) error {
 	return tx.Commit()
 }
 
-func (i *InSqliteChatRepository) Get(chatID int) (chatagg.Chat, error) {
-	ctx := context.Background()
-
+func (i *InSqliteChatRepository) Get(ctx context.Context, chatID int) (chatagg.Chat, error) {
 	var id int
 	if err := i.db.QueryRowContext(ctx, "SELECT id FROM chats WHERE id = ?", chatID).Scan(&id); errors.Is(err, sql.ErrNoRows) {
 		return chatagg.Chat{}, repo.ErrChatNotFound
@@ -138,9 +133,7 @@ func (i *InSqliteChatRepository) Get(chatID int) (chatagg.Chat, error) {
 	return userChat.WithID(chatID), nil
 }
 
-func (i *InSqliteChatRepository) Delete(c chatagg.Chat) error {
-	ctx := context.Background()
-
+func (i *InSqliteChatRepository) Delete(ctx context.Context, c chatagg.Chat) error {
 	result, err := i.db.ExecContext(ctx, "DELETE FROM chats WHERE id = ?", c.ID)
 	if err != nil {
 		return err

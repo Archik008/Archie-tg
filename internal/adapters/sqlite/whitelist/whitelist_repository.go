@@ -26,18 +26,17 @@ func NewInSqliteUserWhiteListRepository(dsn string) *InSqliteUserWhiteListReposi
 	return &InSqliteUserWhiteListRepository{dsn: dsn}
 }
 
-func (i *InSqliteUserWhiteListRepository) Connect() error {
+func (i *InSqliteUserWhiteListRepository) Connect(ctx context.Context) error {
 	db, err := sql.Open("sqlite", i.dsn)
 	if err != nil {
 		return err
 	}
 
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return err
 	}
 
-	ctx := context.Background()
 	if _, err := db.ExecContext(ctx, createWhiteListTableQuery); err != nil {
 		_ = db.Close()
 		return err
@@ -56,9 +55,7 @@ func (i *InSqliteUserWhiteListRepository) Close() error {
 	return i.db.Close()
 }
 
-func (i *InSqliteUserWhiteListRepository) Add(a account.Account) error {
-	ctx := context.Background()
-
+func (i *InSqliteUserWhiteListRepository) Add(ctx context.Context, a account.Account) error {
 	var exists int
 	if err := i.db.QueryRowContext(ctx, "SELECT 1 FROM whitelist_users WHERE user_id = ?", a.UserId).Scan(&exists); err == nil {
 		return repo.ErrAccountAlreadyExists
@@ -75,9 +72,7 @@ func (i *InSqliteUserWhiteListRepository) Add(a account.Account) error {
 	return err
 }
 
-func (i *InSqliteUserWhiteListRepository) Delete(a account.Account) error {
-	ctx := context.Background()
-
+func (i *InSqliteUserWhiteListRepository) Delete(ctx context.Context, a account.Account) error {
 	result, err := i.db.ExecContext(ctx, "DELETE FROM whitelist_users WHERE user_id = ?", a.UserId)
 	if err != nil {
 		return err
@@ -94,9 +89,7 @@ func (i *InSqliteUserWhiteListRepository) Delete(a account.Account) error {
 	return nil
 }
 
-func (i *InSqliteUserWhiteListRepository) Get(userID int) (account.Account, error) {
-	ctx := context.Background()
-
+func (i *InSqliteUserWhiteListRepository) Get(ctx context.Context, userID int) (account.Account, error) {
 	var username string
 	err := i.db.QueryRowContext(
 		ctx,
@@ -113,9 +106,7 @@ func (i *InSqliteUserWhiteListRepository) Get(userID int) (account.Account, erro
 	return account.NewAccount(userID, username), nil
 }
 
-func (i *InSqliteUserWhiteListRepository) GetAll() ([]account.Account, error) {
-	ctx := context.Background()
-
+func (i *InSqliteUserWhiteListRepository) GetAll(ctx context.Context) ([]account.Account, error) {
 	rows, err := i.db.QueryContext(
 		ctx,
 		"SELECT user_id, username FROM whitelist_users ORDER BY user_id ASC",

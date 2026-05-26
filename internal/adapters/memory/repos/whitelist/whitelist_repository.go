@@ -1,6 +1,7 @@
 package whitelist
 
 import (
+	"context"
 	"sync"
 
 	"github.com/archik008/archie-tg/internal/domain/entity/account"
@@ -18,7 +19,7 @@ func NewInMemoryUserWhiteListRepository() whitelist.UserWhiteListRepositoryPort 
 	}
 }
 
-func (i *InMemoryUserWhiteListRepository) Add(a account.Account) error {
+func (i *InMemoryUserWhiteListRepository) Add(_ context.Context, a account.Account) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
@@ -31,7 +32,7 @@ func (i *InMemoryUserWhiteListRepository) Add(a account.Account) error {
 	return nil
 }
 
-func (i *InMemoryUserWhiteListRepository) Get(userId int) (account.Account, error) {
+func (i *InMemoryUserWhiteListRepository) Get(_ context.Context, userId int) (account.Account, error) {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 
@@ -43,7 +44,7 @@ func (i *InMemoryUserWhiteListRepository) Get(userId int) (account.Account, erro
 	return acc, nil
 }
 
-func (i *InMemoryUserWhiteListRepository) GetAll() ([]account.Account, error) {
+func (i *InMemoryUserWhiteListRepository) GetAll(_ context.Context) ([]account.Account, error) {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 
@@ -56,7 +57,7 @@ func (i *InMemoryUserWhiteListRepository) GetAll() ([]account.Account, error) {
 	return accList, nil
 }
 
-func (i *InMemoryUserWhiteListRepository) Delete(a account.Account) error {
+func (i *InMemoryUserWhiteListRepository) Delete(_ context.Context, a account.Account) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 

@@ -1,6 +1,7 @@
 package whitelist_test
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -14,7 +15,7 @@ func TestInSqliteWhiteListRepositoryContract(t *testing.T) {
 		t.Helper()
 
 		repo := sqlitewhitelist.NewInSqliteUserWhiteListRepository(filepath.Join(t.TempDir(), "whitelist.db"))
-		if err := repo.Connect(); err != nil {
+		if err := repo.Connect(context.Background()); err != nil {
 			t.Fatalf("Connect() error = %v", err)
 		}
 		t.Cleanup(func() {

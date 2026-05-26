@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"slices"
@@ -17,13 +18,14 @@ func RunWhiteListRepositoryContractTests(t *testing.T, newRepo WhiteListReposito
 
 	t.Run("Add stores account and Get returns it", func(t *testing.T) {
 		repo := newRepo(t)
+		ctx := context.Background()
 		want := account.NewAccount(201, "trusted")
 
-		if err := repo.Add(want); err != nil {
+		if err := repo.Add(ctx, want); err != nil {
 			t.Fatalf("Add() error = %v", err)
 		}
 
-		got, err := repo.Get(want.UserId)
+		got, err := repo.Get(ctx, want.UserId)
 		if err != nil {
 			t.Fatalf("Get() error = %v", err)
 		}
@@ -34,13 +36,14 @@ func RunWhiteListRepositoryContractTests(t *testing.T, newRepo WhiteListReposito
 
 	t.Run("Add returns ErrAccountAlreadyExists for duplicate users", func(t *testing.T) {
 		repo := newRepo(t)
+		ctx := context.Background()
 		existing := account.NewAccount(202, "trusted")
 
-		if err := repo.Add(existing); err != nil {
+		if err := repo.Add(ctx, existing); err != nil {
 			t.Fatalf("Add() first call error = %v", err)
 		}
 
-		err := repo.Add(existing)
+		err := repo.Add(ctx, existing)
 		if !errors.Is(err, whitelistrepo.ErrAccountAlreadyExists) {
 			t.Fatalf("Add() duplicate error = %v, want %v", err, whitelistrepo.ErrAccountAlreadyExists)
 		}
@@ -48,8 +51,9 @@ func RunWhiteListRepositoryContractTests(t *testing.T, newRepo WhiteListReposito
 
 	t.Run("Get returns ErrAccountNotFound for missing user", func(t *testing.T) {
 		repo := newRepo(t)
+		ctx := context.Background()
 
-		_, err := repo.Get(999)
+		_, err := repo.Get(ctx, 999)
 		if !errors.Is(err, whitelistrepo.ErrAccountNotFound) {
 			t.Fatalf("Get() missing error = %v, want %v", err, whitelistrepo.ErrAccountNotFound)
 		}
@@ -57,17 +61,18 @@ func RunWhiteListRepositoryContractTests(t *testing.T, newRepo WhiteListReposito
 
 	t.Run("GetAll returns all stored accounts", func(t *testing.T) {
 		repo := newRepo(t)
+		ctx := context.Background()
 		first := account.NewAccount(211, "trusted-one")
 		second := account.NewAccount(212, "trusted-two")
 
-		if err := repo.Add(first); err != nil {
+		if err := repo.Add(ctx, first); err != nil {
 			t.Fatalf("Add() first account error = %v", err)
 		}
-		if err := repo.Add(second); err != nil {
+		if err := repo.Add(ctx, second); err != nil {
 			t.Fatalf("Add() second account error = %v", err)
 		}
 
-		got, err := repo.GetAll()
+		got, err := repo.GetAll(ctx)
 		if err != nil {
 			t.Fatalf("GetAll() error = %v", err)
 		}
@@ -83,16 +88,17 @@ func RunWhiteListRepositoryContractTests(t *testing.T, newRepo WhiteListReposito
 
 	t.Run("Delete removes existing account", func(t *testing.T) {
 		repo := newRepo(t)
+		ctx := context.Background()
 		existing := account.NewAccount(203, "trusted")
 
-		if err := repo.Add(existing); err != nil {
+		if err := repo.Add(ctx, existing); err != nil {
 			t.Fatalf("Add() error = %v", err)
 		}
-		if err := repo.Delete(existing); err != nil {
+		if err := repo.Delete(ctx, existing); err != nil {
 			t.Fatalf("Delete() error = %v", err)
 		}
 
-		_, err := repo.Get(existing.UserId)
+		_, err := repo.Get(ctx, existing.UserId)
 		if !errors.Is(err, whitelistrepo.ErrAccountNotFound) {
 			t.Fatalf("Get() after delete error = %v, want %v", err, whitelistrepo.ErrAccountNotFound)
 		}
@@ -100,8 +106,9 @@ func RunWhiteListRepositoryContractTests(t *testing.T, newRepo WhiteListReposito
 
 	t.Run("Delete returns ErrAccountNotFound for missing user", func(t *testing.T) {
 		repo := newRepo(t)
+		ctx := context.Background()
 
-		err := repo.Delete(account.NewAccount(204, "missing"))
+		err := repo.Delete(ctx, account.NewAccount(204, "missing"))
 		if !errors.Is(err, whitelistrepo.ErrAccountNotFound) {
 			t.Fatalf("Delete() missing error = %v, want %v", err, whitelistrepo.ErrAccountNotFound)
 		}

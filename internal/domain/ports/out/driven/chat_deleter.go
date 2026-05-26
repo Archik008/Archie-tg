@@ -1,5 +1,7 @@
 package driven
 
+import "context"
+
 type ChatDeleter interface {
-	DeleteChat(chatId int) error
+	DeleteChat(ctx context.Context, chatId int) error
 }

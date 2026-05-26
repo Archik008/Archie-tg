@@ -1,6 +1,7 @@
 package spamchecker
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
@@ -28,7 +29,7 @@ func TestProcessUser_SkipsWhitelistedUsers(t *testing.T) {
 		account.NewAccount(1, "base"),
 	)
 
-	err := service.ProcessUser(dto.AccountDTO{
+	err := service.ProcessUser(context.Background(), dto.AccountDTO{
 		UserID:   42,
 		Username: "trusted-user",
 	})
@@ -74,7 +75,7 @@ func TestProcessUser_CreatesChatForNonWhitelistedUserWhenChatMissing(t *testing.
 		baseAccount,
 	)
 
-	err := service.ProcessUser(dto.AccountDTO{
+	err := service.ProcessUser(context.Background(), dto.AccountDTO{
 		UserID:   77,
 		Username: "spam-user",
 	})
@@ -124,7 +125,7 @@ func TestProcessUser_DeletesChatBeforeBlockingKnownSpamUser(t *testing.T) {
 		account.NewAccount(1, "base"),
 	)
 
-	err := service.ProcessUser(dto.AccountDTO{
+	err := service.ProcessUser(context.Background(), dto.AccountDTO{
 		UserID:   88,
 		Username: "spam-user",
 	})
@@ -164,7 +165,7 @@ func TestProcessUser_PropagatesDependencyErrors(t *testing.T) {
 			baseAccount,
 		)
 
-		err := service.ProcessUser(dto.AccountDTO{UserID: 10, Username: "spam-user"})
+		err := service.ProcessUser(context.Background(), dto.AccountDTO{UserID: 10, Username: "spam-user"})
 		if !errors.Is(err, expectedErr) {
 			t.Fatalf("ProcessUser() error = %v, want %v", err, expectedErr)
 		}
@@ -180,7 +181,7 @@ func TestProcessUser_PropagatesDependencyErrors(t *testing.T) {
 			baseAccount,
 		)
 
-		err := service.ProcessUser(dto.AccountDTO{UserID: 10, Username: "spam-user"})
+		err := service.ProcessUser(context.Background(), dto.AccountDTO{UserID: 10, Username: "spam-user"})
 		if !errors.Is(err, expectedErr) {
 			t.Fatalf("ProcessUser() error = %v, want %v", err, expectedErr)
 		}
@@ -199,7 +200,7 @@ func TestProcessUser_PropagatesDependencyErrors(t *testing.T) {
 			baseAccount,
 		)
 
-		err := service.ProcessUser(dto.AccountDTO{UserID: 10, Username: "spam-user"})
+		err := service.ProcessUser(context.Background(), dto.AccountDTO{UserID: 10, Username: "spam-user"})
 		if !errors.Is(err, expectedErr) {
 			t.Fatalf("ProcessUser() error = %v, want %v", err, expectedErr)
 		}
@@ -224,7 +225,7 @@ func TestProcessUser_PropagatesDependencyErrors(t *testing.T) {
 			baseAccount,
 		)
 
-		err := service.ProcessUser(dto.AccountDTO{UserID: 10, Username: "spam-user"})
+		err := service.ProcessUser(context.Background(), dto.AccountDTO{UserID: 10, Username: "spam-user"})
 		if !errors.Is(err, expectedErr) {
 			t.Fatalf("ProcessUser() error = %v, want %v", err, expectedErr)
 		}
@@ -255,7 +256,7 @@ func TestProcessUser_PropagatesDependencyErrors(t *testing.T) {
 			baseAccount,
 		)
 
-		err := service.ProcessUser(dto.AccountDTO{UserID: 10, Username: "spam-user"})
+		err := service.ProcessUser(context.Background(), dto.AccountDTO{UserID: 10, Username: "spam-user"})
 		if !errors.Is(err, expectedErr) {
 			t.Fatalf("ProcessUser() error = %v, want %v", err, expectedErr)
 		}
@@ -281,7 +282,7 @@ func TestProcessUser_PropagatesDependencyErrors(t *testing.T) {
 			baseAccount,
 		)
 
-		err := service.ProcessUser(dto.AccountDTO{UserID: 10, Username: "spam-user"})
+		err := service.ProcessUser(context.Background(), dto.AccountDTO{UserID: 10, Username: "spam-user"})
 		if !errors.Is(err, expectedErr) {
 			t.Fatalf("ProcessUser() error = %v, want %v", err, expectedErr)
 		}
@@ -299,19 +300,19 @@ type fakeChatRepository struct {
 	callLog     *[]string
 }
 
-func (f *fakeChatRepository) Create(c chatagg.Chat) error {
+func (f *fakeChatRepository) Create(_ context.Context, c chatagg.Chat) error {
 	f.createCalls = append(f.createCalls, c)
 	f.appendCall("chat.create")
 	return f.createErr
 }
 
-func (f *fakeChatRepository) Delete(c chatagg.Chat) error {
+func (f *fakeChatRepository) Delete(_ context.Context, c chatagg.Chat) error {
 	f.deleteCalls = append(f.deleteCalls, c)
 	f.appendCall("chat.delete")
 	return f.deleteErr
 }
 
-func (f *fakeChatRepository) Get(chatID int) (chatagg.Chat, error) {
+func (f *fakeChatRepository) Get(_ context.Context, chatID int) (chatagg.Chat, error) {
 	f.getCalls = append(f.getCalls, chatID)
 	f.appendCall("chat.get")
 	if f.getErr != nil {
@@ -333,7 +334,7 @@ type fakeWhiteListRepository struct {
 	callLog    *[]string
 }
 
-func (f *fakeWhiteListRepository) Get(userID int) (account.Account, error) {
+func (f *fakeWhiteListRepository) Get(_ context.Context, userID int) (account.Account, error) {
 	f.getCalls = append(f.getCalls, userID)
 	if f.callLog != nil {
 		*f.callLog = append(*f.callLog, "whitelist.get")
@@ -344,15 +345,15 @@ func (f *fakeWhiteListRepository) Get(userID int) (account.Account, error) {
 	return f.getAccount, nil
 }
 
-func (f *fakeWhiteListRepository) Add(a account.Account) error {
+func (f *fakeWhiteListRepository) Add(_ context.Context, a account.Account) error {
 	return nil
 }
 
-func (f *fakeWhiteListRepository) GetAll() ([]account.Account, error) {
+func (f *fakeWhiteListRepository) GetAll(_ context.Context) ([]account.Account, error) {
 	return nil, nil
 }
 
-func (f *fakeWhiteListRepository) Delete(a account.Account) error {
+func (f *fakeWhiteListRepository) Delete(_ context.Context, a account.Account) error {
 	return nil
 }
 
@@ -362,7 +363,7 @@ type fakeChatDeleter struct {
 	callLog     *[]string
 }
 
-func (f *fakeChatDeleter) DeleteChat(chatID int) error {
+func (f *fakeChatDeleter) DeleteChat(_ context.Context, chatID int) error {
 	f.deleteCalls = append(f.deleteCalls, chatID)
 	if f.callLog != nil {
 		*f.callLog = append(*f.callLog, "chatDeleter.delete")
@@ -376,7 +377,7 @@ type fakeUserBlocker struct {
 	callLog    *[]string
 }
 
-func (f *fakeUserBlocker) BlockUser(userID int) error {
+func (f *fakeUserBlocker) BlockUser(_ context.Context, userID int) error {
 	f.blockCalls = append(f.blockCalls, userID)
 	if f.callLog != nil {
 		*f.callLog = append(*f.callLog, "userBlocker.block")
