@@ -52,6 +52,10 @@ func NewSpamCheckerService(
 }
 
 func (i *SpamCheckerService) ProcessUser(ctx context.Context, a dto.AccountDTO) error {
+	if a.UserID == i.baseAccount.UserId {
+		return nil
+	}
+
 	inWhiteList, err := i.checkUserInWhiteList(ctx, a.UserID)
 	if err != nil {
 		return err
