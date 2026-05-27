@@ -64,11 +64,15 @@ func (i *SpamCheckerService) ProcessUser(ctx context.Context, a dto.AccountDTO) 
 		return nil
 	}
 
-	if err := i.processNewChat(ctx, a); err != nil {
+	isNew, err := i.processNewChat(ctx, a)
+	if err != nil {
 		return err
 	}
+	if isNew {
+		return nil
+	}
 
-	if err := i.adapters.userBlocker.BlockUser(ctx, a.UserID); err != nil {
+	if err := i.adapters.userBlocker.BlockUser(ctx, a); err != nil {
 		return err
 	}
 
@@ -86,27 +90,32 @@ func (i *SpamCheckerService) checkUserInWhiteList(ctx context.Context, userId in
 	return true, nil
 }
 
-func (i *SpamCheckerService) processNewChat(ctx context.Context, a dto.AccountDTO) error {
+func (i *SpamCheckerService) processNewChat(ctx context.Context, a dto.AccountDTO) (bool, error) {
 	getChat, err := i.repos.chatRepo.Get(ctx, a.UserID)
 
 	if errors.Is(err, chatPort.ErrChatNotFound) {
 		userAccount := account.NewAccount(a.UserID, a.Username)
 		userChat, err := chat.NewChat(i.baseAccount, userAccount)
 		if err != nil {
-			return err
+			return false, err
 		}
+
+		if err := i.adapters.chatDeleter.DeleteChat(ctx, a); err != nil {
+			return false, err
+		}
+
 		userChat = userChat.WithID(userAccount.UserId)
-		return i.repos.chatRepo.Create(ctx, userChat)
+		return true, i.repos.chatRepo.Create(ctx, userChat)
 	} else if err != nil {
-		return err
+		return false, err
 	}
 
-	if err := i.adapters.chatDeleter.DeleteChat(ctx, getChat.ID); err != nil {
-		return err
+	if err := i.adapters.chatDeleter.DeleteChat(ctx, a); err != nil {
+		return false, err
 	}
 	if err := i.repos.chatRepo.Delete(ctx, getChat); err != nil {
-		return err
+		return false, err
 	}
 
-	return nil
+	return false, nil
 }

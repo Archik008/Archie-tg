@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/archik008/archie-tg/config"
+	"github.com/archik008/archie-tg/internal/application/dto"
 	"github.com/archik008/archie-tg/internal/queue"
 	"github.com/gotd/td/tg"
 )
@@ -23,10 +24,10 @@ func NewTgUserBlocker(client *tg.Client, tgCfg config.TelegramUserCfg,
 	}
 }
 
-func (t *TgUserBlocker) BlockUser(ctx context.Context, userID int) error {
-	usrPeer := &tg.InputPeerUser{
-		UserID:     int64(userID),
-		AccessHash: t.tgCfg.USER_ACCESS_HASH,
+func (t *TgUserBlocker) BlockUser(ctx context.Context, user dto.AccountDTO) error {
+	usrPeer, err := inputPeerUser(user, t.tgCfg)
+	if err != nil {
+		return err
 	}
 
 	if err := t.msgQueue.Acquire(ctx); err != nil {
@@ -34,9 +35,8 @@ func (t *TgUserBlocker) BlockUser(ctx context.Context, userID int) error {
 	}
 	defer t.msgQueue.Release()
 
-	if _, err := t.client.ContactsBlock(ctx, &tg.ContactsBlockRequest{
-		ID:            usrPeer,
-		MyStoriesFrom: true,
+	if _, err = t.client.ContactsBlock(ctx, &tg.ContactsBlockRequest{
+		ID: usrPeer,
 	}); err != nil {
 		return err
 	}

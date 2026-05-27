@@ -165,6 +165,10 @@ func (c *Client) SubmitCode(ctx context.Context, code string) (requires2FA bool,
 	}
 
 	c.mu.Lock()
+	if err := c.savePendingMetaLocked(); err != nil {
+		c.mu.Unlock()
+		return false, err
+	}
 	c.pending = nil
 	c.mu.Unlock()
 
@@ -193,6 +197,10 @@ func (c *Client) SubmitPassword(ctx context.Context, password string) error {
 	}
 
 	c.mu.Lock()
+	if err := c.savePendingMetaLocked(); err != nil {
+		c.mu.Unlock()
+		return err
+	}
 	c.pending = nil
 	c.mu.Unlock()
 
@@ -231,4 +239,80 @@ func (c *Client) Close() {
 		c.runCancel()
 		c.runCancel = nil
 	}
+}
+
+// SessionHook is called after session is authorized and API is ready.
+type SessionHook func(ctx context.Context, api *tg.Client) error
+
+// RunSession connects with saved session and dispatches updates until ctx is canceled.
+func (c *Client) RunSession(ctx context.Context, dispatcher tg.UpdateDispatcher, hook SessionHook) error {
+	meta, err := c.LoadSessionMeta()
+	if err != nil {
+		return err
+	}
+
+	tgClient := telegram.NewClient(meta.AppID, meta.AppHash, telegram.Options{
+		SessionStorage: &telegram.FileSessionStorage{Path: c.sessionPath},
+		UpdateHandler:  dispatcher,
+	})
+
+	return tgClient.Run(ctx, func(ctx context.Context) error {
+		api := tgClient.API()
+
+		c.mu.Lock()
+		c.tgClient = tgClient
+		c.api = api
+		c.mu.Unlock()
+
+		status, err := tgClient.Auth().Status(ctx)
+		if err != nil {
+			return err
+		}
+		if !status.Authorized {
+			return errors.New("telegram session is not authorized")
+		}
+
+		if hook == nil {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		return hook(ctx, api)
+	})
+}
+
+// EnsureSelfUserID resolves and persists current Telegram account id.
+func (c *Client) EnsureSelfUserID(ctx context.Context, api *tg.Client) (int64, error) {
+	meta, err := c.LoadSessionMeta()
+	if err != nil {
+		return 0, err
+	}
+	if meta.SelfUserID != 0 {
+		return meta.SelfUserID, nil
+	}
+
+	users, err := api.UsersGetUsers(ctx, []tg.InputUserClass{&tg.InputUserSelf{}})
+	if err != nil {
+		return 0, err
+	}
+	user, ok := users[0].(*tg.User)
+	if !ok {
+		return 0, errors.New("cannot resolve self user")
+	}
+
+	meta.SelfUserID = user.ID
+	if err := c.SaveSessionMeta(meta); err != nil {
+		return 0, err
+	}
+	return user.ID, nil
+}
+
+func (c *Client) savePendingMetaLocked() error {
+	if c.pending == nil {
+		return ErrAuthNotStarted
+	}
+	return c.SaveSessionMeta(SessionMeta{
+		AppID:   c.pending.appID,
+		AppHash: c.pending.appHash,
+		Phone:   c.pending.phone,
+	})
 }

@@ -19,9 +19,15 @@ type WhiteListClient interface {
 	AddToWhiteList(ctx context.Context, a dto.AccountDTO) error
 }
 
-func Run(ctx context.Context, authClient AuthClient, whitelistClient WhiteListClient) error {
+type BotRunner interface {
+	Start(ctx context.Context, logs chan<- string) error
+	Stop()
+	IsRunning() bool
+}
+
+func Run(ctx context.Context, authClient AuthClient, whitelistClient WhiteListClient, bot BotRunner) error {
 	p := tea.NewProgram(
-		newModel(ctx, authClient, whitelistClient),
+		newModel(ctx, authClient, whitelistClient, bot),
 		tea.WithAltScreen(),
 	)
 	_, err := p.Run()

@@ -90,11 +90,14 @@ func TestProcessUser_CreatesChatForNonWhitelistedUserWhenChatMissing(t *testing.
 	if !reflect.DeepEqual(chatRepo.createCalls[0], wantChat) {
 		t.Fatalf("Create() chat mismatch: got %+v want %+v", chatRepo.createCalls[0], wantChat)
 	}
-	if len(chatDeleter.deleteCalls) != 0 {
-		t.Fatalf("DeleteChat() should not be called, got %v", chatDeleter.deleteCalls)
+	if len(chatDeleter.deleteCalls) != 1 || chatDeleter.deleteCalls[0] != 77 {
+		t.Fatalf("DeleteChat() calls = %v, want [77]", chatDeleter.deleteCalls)
 	}
 	if len(chatRepo.deleteCalls) != 0 {
 		t.Fatalf("Delete() should not be called, got %d calls", len(chatRepo.deleteCalls))
+	}
+	if len(userBlocker.blockCalls) != 0 {
+		t.Fatalf("BlockUser() should not be called on first message, got %v", userBlocker.blockCalls)
 	}
 }
 
@@ -363,8 +366,8 @@ type fakeChatDeleter struct {
 	callLog     *[]string
 }
 
-func (f *fakeChatDeleter) DeleteChat(_ context.Context, chatID int) error {
-	f.deleteCalls = append(f.deleteCalls, chatID)
+func (f *fakeChatDeleter) DeleteChat(_ context.Context, user dto.AccountDTO) error {
+	f.deleteCalls = append(f.deleteCalls, user.UserID)
 	if f.callLog != nil {
 		*f.callLog = append(*f.callLog, "chatDeleter.delete")
 	}
@@ -377,8 +380,8 @@ type fakeUserBlocker struct {
 	callLog    *[]string
 }
 
-func (f *fakeUserBlocker) BlockUser(_ context.Context, userID int) error {
-	f.blockCalls = append(f.blockCalls, userID)
+func (f *fakeUserBlocker) BlockUser(_ context.Context, user dto.AccountDTO) error {
+	f.blockCalls = append(f.blockCalls, user.UserID)
 	if f.callLog != nil {
 		*f.callLog = append(*f.callLog, "userBlocker.block")
 	}

@@ -47,6 +47,7 @@ type model struct {
 	ctx             context.Context
 	authClient      AuthClient
 	whitelistClient WhiteListClient
+	bot             BotRunner
 
 	screen     screen
 	menuCursor int
@@ -64,7 +65,8 @@ type model struct {
 	loadingFor string
 	loadingIdx int
 
-	logs []string
+	logs  []string
+	logCh chan string
 }
 
 type authBeginDoneMsg struct{ err error }
@@ -74,14 +76,16 @@ type authCodeDoneMsg struct {
 }
 type authPasswordDoneMsg struct{ err error }
 type whitelistAddDoneMsg struct{ err error }
-type logTickMsg time.Time
+type logLineMsg string
+type logClosedMsg struct{}
 type loadingTickMsg time.Time
 
-func newModel(ctx context.Context, authClient AuthClient, whitelistClient WhiteListClient) model {
+func newModel(ctx context.Context, authClient AuthClient, whitelistClient WhiteListClient, bot BotRunner) model {
 	return model{
 		ctx:             ctx,
 		authClient:      authClient,
 		whitelistClient: whitelistClient,
+		bot:             bot,
 		screen:          screenMenu,
 		status:          "Выбери действие",
 		logs:            make([]string, 0, 64),
@@ -162,15 +166,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.status = "Пользователь добавлен в whitelist."
 		return m, nil
-	case logTickMsg:
+	case logLineMsg:
 		if m.screen != screenLogs {
 			return m, nil
 		}
-		m.logs = append(m.logs, fmt.Sprintf("%s | polling updates...", time.Time(typed).Format("15:04:05")))
+		m.logs = append(m.logs, string(typed))
 		if len(m.logs) > 18 {
 			m.logs = m.logs[len(m.logs)-18:]
 		}
-		return m, tea.Tick(2*time.Second, func(t time.Time) tea.Msg { return logTickMsg(t) })
+		return m, waitLogLine(m.logCh)
+	case logClosedMsg:
+		if m.screen == screenLogs {
+			m.status = "Бот остановлен"
+		}
+		return m, nil
 	case loadingTickMsg:
 		if m.screen != screenAuthLoading {
 			return m, nil
@@ -320,9 +329,22 @@ func (m model) onKey(msg tea.KeyMsg) (model, tea.Cmd) {
 					m.status = "Нет файла аккаунта. Сначала авторизуйся."
 					return m, nil
 				}
+				if m.bot == nil {
+					m.status = "Бот не инициализирован."
+					return m, nil
+				}
+				if m.bot.IsRunning() {
+					m.status = "Бот уже запущен."
+					return m, nil
+				}
+				m.logCh = make(chan string, 128)
+				if err := m.bot.Start(m.ctx, m.logCh); err != nil {
+					m.status = "Не удалось запустить бота: " + err.Error()
+					return m, nil
+				}
 				m.screen = screenLogs
-				m.logs = []string{"Старт приложения...", "Антиспам бот активирован."}
-				return m, tea.Tick(2*time.Second, func(t time.Time) tea.Msg { return logTickMsg(t) })
+				m.logs = []string{"Старт приложения...", "Ожидание событий Telegram..."}
+				return m, waitLogLine(m.logCh)
 			}
 		}
 		return m, nil
@@ -338,6 +360,9 @@ func (m model) onKey(msg tea.KeyMsg) (model, tea.Cmd) {
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		case "esc":
+			if m.bot != nil {
+				m.bot.Stop()
+			}
 			m.screen = screenMenu
 			m.status = "Возврат в главное меню."
 			return m, nil
@@ -439,6 +464,19 @@ func newTextInput(placeholder string, password bool) textinput.Model {
 		ti.EchoCharacter = '*'
 	}
 	return ti
+}
+
+func waitLogLine(ch <-chan string) tea.Cmd {
+	return func() tea.Msg {
+		if ch == nil {
+			return logClosedMsg{}
+		}
+		line, ok := <-ch
+		if !ok {
+			return logClosedMsg{}
+		}
+		return logLineMsg(line)
+	}
 }
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
