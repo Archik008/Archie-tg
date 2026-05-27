@@ -26,7 +26,7 @@ func NewTgUserBotChatDeleter(client *tg.Client, tgCfg config.TelegramUserCfg,
 func (t *TgUserBotСhatDeleter) DeleteChat(ctx context.Context, chatId int) error {
 	usrPeer := &tg.InputPeerUser{
 		UserID:     int64(chatId),
-		AccessHash: t.tgCfg.APP_HASH,
+		AccessHash: t.tgCfg.USER_ACCESS_HASH,
 	}
 
 	if err := t.msgQueue.Acquire(ctx); err != nil {

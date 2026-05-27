@@ -26,7 +26,7 @@ func NewTgUserBlocker(client *tg.Client, tgCfg config.TelegramUserCfg,
 func (t *TgUserBlocker) BlockUser(ctx context.Context, userID int) error {
 	usrPeer := &tg.InputPeerUser{
 		UserID:     int64(userID),
-		AccessHash: t.tgCfg.APP_HASH,
+		AccessHash: t.tgCfg.USER_ACCESS_HASH,
 	}
 
 	if err := t.msgQueue.Acquire(ctx); err != nil {
