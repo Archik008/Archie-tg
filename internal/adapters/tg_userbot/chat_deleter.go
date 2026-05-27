@@ -29,9 +29,10 @@ func (t *TgUserBotСhatDeleter) DeleteChat(ctx context.Context, chatId int) erro
 		AccessHash: t.tgCfg.APP_HASH,
 	}
 
-	if err := t.msgQueue.Process(); err != nil {
+	if err := t.msgQueue.Acquire(ctx); err != nil {
 		return err
 	}
+	defer t.msgQueue.Release()
 
 	_, err := t.client.MessagesDeleteHistory(ctx, &tg.MessagesDeleteHistoryRequest{
 		Revoke: true,

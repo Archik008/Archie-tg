@@ -29,9 +29,10 @@ func (t *TgUserBlocker) BlockUser(ctx context.Context, userID int) error {
 		AccessHash: t.tgCfg.APP_HASH,
 	}
 
-	if err := t.msgQueue.Process(); err != nil {
+	if err := t.msgQueue.Acquire(ctx); err != nil {
 		return err
 	}
+	defer t.msgQueue.Release()
 
 	if _, err := t.client.ContactsBlock(ctx, &tg.ContactsBlockRequest{
 		ID:            usrPeer,
