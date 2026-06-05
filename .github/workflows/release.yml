@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          targets=(
+            "windows amd64 archie-windows-amd64.exe"
+            "windows arm64 archie-windows-arm64.exe"
+            "linux amd64 archie-linux-amd64"
+            "linux arm64 archie-linux-arm64"
+            "darwin amd64 archie-darwin-amd64"
+            "darwin arm64 archie-darwin-arm64"
+          )
+          for target in "${targets[@]}"; do
+            read -r goos goarch out <<< "$target"
+            echo "Building $out..."
+            GOOS=$goos GOARCH=$goarch CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "dist/$out" ./cmd/archie
+          done
+          ls -la dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/archie-windows-amd64.exe
+            dist/archie-windows-arm64.exe
+            dist/archie-linux-amd64
+            dist/archie-linux-arm64
+            dist/archie-darwin-amd64
+            dist/archie-darwin-arm64
