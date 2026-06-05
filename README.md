@@ -17,13 +17,24 @@ You do **not** need Go or source code to use Archie TG.
 ## First Start
 
 At first launch in TUI:
-1. Choose `Авторизоваться`
+1. Choose **Authorize**
 2. Enter `app_id` and `app_hash` (from Telegram API)
 3. Enter your phone number
 4. Enter confirmation code
 5. Enter 2FA password (if enabled)
 
-Then choose `Старт приложения`.
+Then choose **Start application**.
+
+## Platform Binaries
+
+| File | Platform |
+|------|----------|
+| `archie-windows-amd64.exe` | Windows (most PCs) |
+| `archie-windows-arm64.exe` | Windows ARM |
+| `archie-linux-amd64` | Linux x86_64 |
+| `archie-linux-arm64` | Linux ARM64 |
+| `archie-darwin-amd64` | macOS Intel |
+| `archie-darwin-arm64` | macOS Apple Silicon |
 
 ## Main Features
 

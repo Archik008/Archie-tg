@@ -59,7 +59,7 @@ func (r *Runtime) Start(ctx context.Context, logs chan<- string) error {
 			}
 		}
 
-		logf("Запуск антиспам бота...")
+		logf("Starting anti-spam bot...")
 
 		dispatcher := tg.NewUpdateDispatcher()
 		var selfUserID atomic.Int64
@@ -78,8 +78,8 @@ func (r *Runtime) Start(ctx context.Context, logs chan<- string) error {
 				return err
 			}
 			selfUserID.Store(id)
-			logf("Авторизован. self_user_id=%d", id)
-			logf("Слушаю входящие сообщения (любой тип)...")
+			logf("Authorized. self_user_id=%d", id)
+			logf("Listening for incoming messages (any type)...")
 
 			<-ctx.Done()
 			return ctx.Err()
@@ -87,12 +87,12 @@ func (r *Runtime) Start(ctx context.Context, logs chan<- string) error {
 
 		if err != nil && !errors.Is(err, context.Canceled) {
 			if tgErr, ok := tgerr.As(err); ok {
-				logf("Ошибка Telegram: %s", tgErr.Error())
+				logf("Telegram error: %s", tgErr.Error())
 			} else {
-				logf("Ошибка: %v", err)
+				logf("Error: %v", err)
 			}
 		}
-		logf("Бот остановлен")
+		logf("Bot stopped")
 	}()
 
 	return nil

@@ -33,10 +33,10 @@ const (
 )
 
 var menuItems = []string{
-	"Авторизоваться",
-	"Выход из приложения",
-	"Добавить пользователя в whitelist",
-	"Старт приложения",
+	"Authorize",
+	"Exit",
+	"Add user to whitelist",
+	"Start application",
 }
 
 type model struct {
@@ -73,7 +73,7 @@ func newModel(ctx context.Context, authClient AuthClient) model {
 		ctx:        ctx,
 		authClient: authClient,
 		screen:     screenMenu,
-		status:     "Выбери действие",
+		status:     "Choose an action",
 		logs:       make([]string, 0, 64),
 	}
 }
@@ -88,37 +88,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onKey(typed)
 	case authBeginDoneMsg:
 		if typed.err != nil {
-			m.status = "Ошибка инициализации: " + typed.err.Error()
+			m.status = "Initialization error: " + typed.err.Error()
 			m.screen = screenMenu
 			return m, nil
 		}
 		m.screen = screenAuthCode
 		m.code = ""
-		m.status = "Введите код подтверждения"
+		m.status = "Enter confirmation code"
 		return m, nil
 	case authCodeDoneMsg:
 		if typed.err != nil {
-			m.status = "Ошибка кода: " + typed.err.Error()
+			m.status = "Code error: " + typed.err.Error()
 			m.screen = screenAuthCode
 			return m, nil
 		}
 		if typed.requires2FA {
 			m.screen = screenAuthPassword
 			m.password = ""
-			m.status = "Введите 2FA пароль"
+			m.status = "Enter 2FA password"
 			return m, nil
 		}
 		m.screen = screenMenu
-		m.status = "Авторизация завершена. Возврат в меню."
+		m.status = "Authorization complete. Back to menu."
 		return m, nil
 	case authPasswordDoneMsg:
 		if typed.err != nil {
-			m.status = "Ошибка 2FA: " + typed.err.Error()
+			m.status = "2FA error: " + typed.err.Error()
 			m.screen = screenAuthPassword
 			return m, nil
 		}
 		m.screen = screenMenu
-		m.status = "Авторизация завершена. Возврат в меню."
+		m.status = "Authorization complete. Back to menu."
 		return m, nil
 	case logTickMsg:
 		if m.screen != screenLogs {
@@ -145,17 +145,17 @@ func (m model) View() string {
 	case screenMenu:
 		return m.viewMenu()
 	case screenAuthAppID:
-		return m.viewPrompt("Введите app_id", m.appID, false)
+		return m.viewPrompt("Enter app_id", m.appID, false)
 	case screenAuthAppHash:
-		return m.viewPrompt("Введите app_hash", m.appHash, false)
+		return m.viewPrompt("Enter app_hash", m.appHash, false)
 	case screenAuthPhone:
-		return m.viewPrompt("Введите номер телефона (например +7700...)", m.phone, false)
+		return m.viewPrompt("Enter phone number (e.g. +1234567890)", m.phone, false)
 	case screenAuthLoading:
-		return fmt.Sprintf("%s %s\n\n%s\n\nEsc: назад в меню", spinnerFrames[m.loadingIdx], m.loadingFor, m.status)
+		return fmt.Sprintf("%s %s\n\n%s\n\nEsc: back to menu", spinnerFrames[m.loadingIdx], m.loadingFor, m.status)
 	case screenAuthCode:
-		return m.viewPrompt("Введите код подтверждения", m.code, false)
+		return m.viewPrompt("Enter confirmation code", m.code, false)
 	case screenAuthPassword:
-		return m.viewPrompt("Введите 2FA пароль", m.password, true)
+		return m.viewPrompt("Enter 2FA password", m.password, true)
 	case screenLogs:
 		return m.viewLogs()
 	default:
@@ -181,19 +181,19 @@ func (m model) onKey(msg tea.KeyMsg) (model, tea.Cmd) {
 			switch menuItem(m.menuCursor) {
 			case menuAuthorize:
 				m.screen = screenAuthAppID
-				m.status = "Шаг 1/5: app_id"
+				m.status = "Step 1/5: app_id"
 				m.appID, m.appHash, m.phone, m.code, m.password = "", "", "", "", ""
 			case menuExit:
 				return m, tea.Quit
 			case menuAddWhitelist:
-				m.status = "Пункт whitelist пока не подключен в TUI."
+				m.status = "Whitelist menu is not wired in this TUI build."
 			case menuStart:
 				if !m.authClient.SessionExists() {
-					m.status = "Нет файла аккаунта. Сначала авторизуйся."
+					m.status = "No account session. Authorize first."
 					return m, nil
 				}
 				m.screen = screenLogs
-				m.logs = []string{"Старт приложения...", "Антиспам бот активирован."}
+				m.logs = []string{"Starting application...", "Anti-spam bot activated."}
 				return m, tea.Tick(2*time.Second, func(t time.Time) tea.Msg { return logTickMsg(t) })
 			}
 		}
@@ -201,20 +201,20 @@ func (m model) onKey(msg tea.KeyMsg) (model, tea.Cmd) {
 	case screenAuthAppID:
 		return m.updateInput(msg, &m.appID, func() (model, tea.Cmd) {
 			m.screen = screenAuthAppHash
-			m.status = "Шаг 2/5: app_hash"
+			m.status = "Step 2/5: app_hash"
 			return m, nil
 		})
 	case screenAuthAppHash:
 		return m.updateInput(msg, &m.appHash, func() (model, tea.Cmd) {
 			m.screen = screenAuthPhone
-			m.status = "Шаг 3/5: phone"
+			m.status = "Step 3/5: phone"
 			return m, nil
 		})
 	case screenAuthPhone:
 		return m.updateInput(msg, &m.phone, func() (model, tea.Cmd) {
 			m.screen = screenAuthLoading
-			m.loadingFor = "Инициализация клиента..."
-			m.status = "Шаг 4/5: запрос кода"
+			m.loadingFor = "Initializing client..."
+			m.status = "Step 4/5: requesting code"
 			return m, tea.Batch(
 				tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg { return loadingTickMsg(t) }),
 				m.cmdBeginAuth(),
@@ -223,7 +223,7 @@ func (m model) onKey(msg tea.KeyMsg) (model, tea.Cmd) {
 	case screenAuthCode:
 		return m.updateInput(msg, &m.code, func() (model, tea.Cmd) {
 			m.screen = screenAuthLoading
-			m.loadingFor = "Проверка кода..."
+			m.loadingFor = "Verifying code..."
 			return m, tea.Batch(
 				tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg { return loadingTickMsg(t) }),
 				m.cmdSubmitCode(),
@@ -232,7 +232,7 @@ func (m model) onKey(msg tea.KeyMsg) (model, tea.Cmd) {
 	case screenAuthPassword:
 		return m.updateInput(msg, &m.password, func() (model, tea.Cmd) {
 			m.screen = screenAuthLoading
-			m.loadingFor = "Проверка 2FA..."
+			m.loadingFor = "Verifying 2FA..."
 			return m, tea.Batch(
 				tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg { return loadingTickMsg(t) }),
 				m.cmdSubmitPassword(),
@@ -242,7 +242,7 @@ func (m model) onKey(msg tea.KeyMsg) (model, tea.Cmd) {
 		if msg.String() == "esc" {
 			m.authClient.ResetAuthFlow()
 			m.screen = screenMenu
-			m.status = "Авторизация отменена."
+			m.status = "Authorization cancelled."
 		}
 		return m, nil
 	case screenLogs:
@@ -251,7 +251,7 @@ func (m model) onKey(msg tea.KeyMsg) (model, tea.Cmd) {
 			return m, tea.Quit
 		case "esc":
 			m.screen = screenMenu
-			m.status = "Возврат в главное меню."
+			m.status = "Back to main menu."
 			return m, nil
 		}
 		return m, nil
@@ -264,11 +264,11 @@ func (m model) updateInput(msg tea.KeyMsg, target *string, onSubmit func() (mode
 	case tea.KeyEsc:
 		m.authClient.ResetAuthFlow()
 		m.screen = screenMenu
-		m.status = "Возврат в меню."
+		m.status = "Back to menu."
 		return m, nil
 	case tea.KeyEnter:
 		if strings.TrimSpace(*target) == "" {
-			m.status = "Поле не должно быть пустым"
+			m.status = "Field must not be empty"
 			return m, nil
 		}
 		return onSubmit()
@@ -295,7 +295,7 @@ func (m model) cmdBeginAuth() tea.Cmd {
 	return func() tea.Msg {
 		appID, err := strconv.Atoi(appIDRaw)
 		if err != nil {
-			return authBeginDoneMsg{err: fmt.Errorf("app_id должен быть числом")}
+			return authBeginDoneMsg{err: fmt.Errorf("app_id must be a number")}
 		}
 		return authBeginDoneMsg{err: m.authClient.BeginAuth(m.ctx, appID, appHash, phone)}
 	}
@@ -318,7 +318,7 @@ func (m model) cmdSubmitPassword() tea.Cmd {
 
 func (m model) viewMenu() string {
 	var b strings.Builder
-	b.WriteString("Archie TG - Главное меню\n\n")
+	b.WriteString("Archie TG - Main Menu\n\n")
 	for i, item := range menuItems {
 		cursor := "  "
 		if i == m.menuCursor {
@@ -328,7 +328,7 @@ func (m model) viewMenu() string {
 	}
 	b.WriteString("\n")
 	b.WriteString(m.status + "\n")
-	b.WriteString("\n↑/↓ выбрать • Enter подтвердить • q выйти\n")
+	b.WriteString("\n↑/↓ select • Enter confirm • q quit\n")
 	return b.String()
 }
 
@@ -338,7 +338,7 @@ func (m model) viewPrompt(title, value string, mask bool) string {
 		display = strings.Repeat("*", len(value))
 	}
 	return fmt.Sprintf(
-		"%s\n\n%s\n\n%s\n\nEnter: далее • Esc: назад",
+		"%s\n\n%s\n\n%s\n\nEnter: next • Esc: back",
 		title,
 		display,
 		m.status,
@@ -347,11 +347,11 @@ func (m model) viewPrompt(title, value string, mask bool) string {
 
 func (m model) viewLogs() string {
 	var b strings.Builder
-	b.WriteString("Режим логов (приложение запущено)\n\n")
+	b.WriteString("Log mode (application running)\n\n")
 	for _, line := range m.logs {
 		b.WriteString(line + "\n")
 	}
-	b.WriteString("\nEsc: назад в меню • q: выход\n")
+	b.WriteString("\nEsc: back to menu • q: quit\n")
 	return b.String()
 }
 

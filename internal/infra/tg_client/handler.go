@@ -96,7 +96,7 @@ func (h *messageHandler) dispatch(ctx context.Context, acc dto.AccountDTO, kind 
 	}
 
 	h.log(fmt.Sprintf(
-		"Сообщение [%s] от user_id=%d username=%s access_hash=%d",
+		"Message [%s] from user_id=%d username=%s access_hash=%d",
 		kind,
 		acc.UserID,
 		displayUsername(acc.Username),
@@ -105,16 +105,16 @@ func (h *messageHandler) dispatch(ctx context.Context, acc dto.AccountDTO, kind 
 
 	checker := h.checker()
 	if checker == nil {
-		h.log("Спам-чекер ещё не инициализирован, сообщение пропущено")
+		h.log("Spam checker not initialized yet, message skipped")
 		return nil
 	}
 
 	if err := checker.ProcessUser(ctx, acc); err != nil {
-		h.log(fmt.Sprintf("Ошибка обработки user_id=%d: %v", acc.UserID, err))
+		h.log(fmt.Sprintf("Processing error for user_id=%d: %v", acc.UserID, err))
 		return err
 	}
 
-	h.log(fmt.Sprintf("Обработан user_id=%d", acc.UserID))
+	h.log(fmt.Sprintf("Processed user_id=%d", acc.UserID))
 	return nil
 }
 
