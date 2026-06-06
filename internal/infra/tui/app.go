@@ -4,13 +4,14 @@ import (
 	"context"
 
 	"github.com/archik008/archie-tg/internal/application/dto"
+	setupclient "github.com/archik008/archie-tg/internal/setup/tg_client"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 type AuthClient interface {
 	SessionExists() bool
 	SessionDir() string
-	BeginAuth(ctx context.Context, appID int, appHash, phone string) (sentPhone string, err error)
+	BeginAuth(ctx context.Context, appID int, appHash, phone string) (setupclient.BeginAuthResult, error)
 	SubmitCode(ctx context.Context, code string) (bool, error)
 	SubmitPassword(ctx context.Context, password string) error
 	ResetAuthFlow()

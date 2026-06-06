@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/auth"
 	"github.com/gotd/td/tg"
@@ -29,12 +30,13 @@ type Client struct {
 	sessionDir  string
 	sessionPath string
 
-	mu        sync.Mutex
-	pending   *pendingCreds
-	activeRun *runHandle
-	tgClient  *telegram.Client
-	authAPI   *auth.Client
-	api       *tg.Client
+	mu           sync.Mutex
+	pending      *pendingCreds
+	activeRun    *runHandle
+	authMemStore *session.StorageMemory
+	tgClient     *telegram.Client
+	authAPI      *auth.Client
+	api          *tg.Client
 }
 
 type runHandle struct {
@@ -74,39 +76,47 @@ func (c *Client) SessionExists() bool {
 	return err == nil
 }
 
-func (c *Client) pendingSessionPath() string {
-	return c.sessionPath + ".pending"
-}
-
 // BeginAuth builds the Telegram client for the given credentials, connects
 // to Telegram and sends a code to the phone number.
-// Returns the normalized phone that was sent to Telegram API.
-func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
+func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string) (BeginAuthResult, error) {
+	result := BeginAuthResult{
+		AppID:         appID,
+		AppHashPrefix: maskAppHash(appHash),
 	}
+
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+
 	appHash = strings.TrimSpace(appHash)
 	phone = normalizePhone(phone)
-	if appID <= 0 || appHash == "" || phone == "" {
-		return "", ErrInvalidCredentials
+	result.Phone = phone
+	result.AppHashPrefix = maskAppHash(appHash)
+
+	if err := validateAppCredentials(appID, appHash); err != nil {
+		c.writeAuthAudit(authAuditRecord{
+			AppID:         appID,
+			AppHashPrefix: result.AppHashPrefix,
+			Phone:         phone,
+			Error:         err.Error(),
+		})
+		return result, err
 	}
 
 	c.stopActiveRunAndWait()
+	c.clearAuthMemoryStore()
 
-	pendingPath := c.pendingSessionPath()
-	if err := c.removeSessionFiles(pendingPath); err != nil {
-		return "", err
-	}
-
+	memStore := &session.StorageMemory{}
 	clientCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 
 	c.mu.Lock()
 	c.activeRun = &runHandle{cancel: cancel, done: done}
+	c.authMemStore = memStore
 	c.mu.Unlock()
 
 	tgClient := telegram.NewClient(appID, appHash, telegram.Options{
-		SessionStorage: &telegram.FileSessionStorage{Path: pendingPath},
+		SessionStorage: memStore,
 	})
 
 	apiReady := make(chan *tg.Client, 1)
@@ -121,11 +131,22 @@ func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string
 		})
 	}()
 
+	fail := func(err error) (BeginAuthResult, error) {
+		c.stopActiveRunAndWait()
+		c.clearAuthMemoryStore()
+		c.writeAuthAudit(authAuditRecord{
+			AppID:         appID,
+			AppHashPrefix: result.AppHashPrefix,
+			Phone:         phone,
+			Error:         err.Error(),
+		})
+		return result, err
+	}
+
 	select {
 	case err := <-runErr:
 		c.finishRun(done)
-		_ = c.removeSessionFiles(pendingPath)
-		return "", err
+		return fail(err)
 	case api := <-apiReady:
 		authClient := auth.NewClient(api, rand.Reader, appID, appHash)
 
@@ -133,15 +154,21 @@ func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string
 		sent, err := authClient.SendCode(sendCtx, phone, auth.SendCodeOptions{})
 		sendCancel()
 		if err != nil {
-			c.stopActiveRunAndWait()
-			_ = c.removeSessionFiles(pendingPath)
-			return "", err
+			return fail(err)
 		}
+
+		delivery := codeDeliveryMessage(sent)
+		result.CodeDelivery = delivery
+
+		switch sent.(type) {
+		case *tg.AuthSentCodeSuccess:
+			err := errors.New("telegram did not send a new code because this auth key is already authorized")
+			return fail(err)
+		}
+
 		sentCode, ok := sent.(*tg.AuthSentCode)
 		if !ok {
-			c.stopActiveRunAndWait()
-			_ = c.removeSessionFiles(pendingPath)
-			return "", errors.New("unexpected SendCode response type")
+			return fail(errors.New("unexpected SendCode response type"))
 		}
 
 		c.mu.Lock()
@@ -156,12 +183,19 @@ func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string
 		}
 		c.mu.Unlock()
 
-		return phone, nil
+		c.writeAuthAudit(authAuditRecord{
+			AppID:         appID,
+			AppHashPrefix: result.AppHashPrefix,
+			Phone:         phone,
+			CodeDelivery:  delivery,
+		})
+
+		return result, nil
 
 	case <-ctx.Done():
 		c.stopActiveRunAndWait()
-		_ = c.removeSessionFiles(pendingPath)
-		return "", ctx.Err()
+		c.clearAuthMemoryStore()
+		return result, ctx.Err()
 	}
 }
 
@@ -223,7 +257,7 @@ func (c *Client) SubmitPassword(ctx context.Context, password string) error {
 func (c *Client) completeAuth(creds *pendingCreds) error {
 	c.stopActiveRunAndWait()
 
-	if err := c.promotePendingSession(); err != nil {
+	if err := c.persistAuthMemoryStore(); err != nil {
 		return err
 	}
 	if err := c.SaveSessionMeta(SessionMeta{
@@ -240,10 +274,35 @@ func (c *Client) completeAuth(creds *pendingCreds) error {
 	return nil
 }
 
-// ResetAuthFlow cancels any in-progress auth flow and removes pending session files.
+func (c *Client) persistAuthMemoryStore() error {
+	c.mu.Lock()
+	memStore := c.authMemStore
+	c.mu.Unlock()
+
+	if memStore == nil {
+		return errors.New("auth session memory store is empty")
+	}
+	if err := c.removeSessionFiles(c.sessionPath); err != nil {
+		return err
+	}
+	if err := memStore.WriteFile(c.sessionPath, 0o600); err != nil {
+		return err
+	}
+	c.clearAuthMemoryStore()
+	return nil
+}
+
+func (c *Client) clearAuthMemoryStore() {
+	c.mu.Lock()
+	c.authMemStore = nil
+	c.mu.Unlock()
+	_ = c.removeSessionFiles(c.sessionPath + ".pending")
+}
+
+// ResetAuthFlow cancels any in-progress auth flow.
 func (c *Client) ResetAuthFlow() {
 	c.stopActiveRunAndWait()
-	_ = c.removeSessionFiles(c.pendingSessionPath())
+	c.clearAuthMemoryStore()
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -399,17 +458,6 @@ func (c *Client) finishRun(done chan struct{}) {
 	c.mu.Lock()
 	c.activeRun = nil
 	c.mu.Unlock()
-}
-
-func (c *Client) promotePendingSession() error {
-	pending := c.pendingSessionPath()
-	if err := c.removeSessionFiles(c.sessionPath); err != nil {
-		return err
-	}
-	if err := os.Rename(pending, c.sessionPath); err != nil {
-		return err
-	}
-	return c.removeSessionFiles(pending)
 }
 
 func normalizePhone(phone string) string {

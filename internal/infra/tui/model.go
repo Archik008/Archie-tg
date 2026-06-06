@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/archik008/archie-tg/internal/application/dto"
+	setupclient "github.com/archik008/archie-tg/internal/setup/tg_client"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -70,8 +71,8 @@ type model struct {
 }
 
 type authBeginDoneMsg struct {
-	phone string
-	err   error
+	result setupclient.BeginAuthResult
+	err    error
 }
 type authCodeDoneMsg struct {
 	requires2FA bool
@@ -132,11 +133,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.screen = screenAuthCode
-		sentPhone := typed.phone
-		if sentPhone == "" {
-			sentPhone = normalizePhoneDisplay(m.phone)
-		}
-		m.status = fmt.Sprintf("Code sent to %s. Enter confirmation code.", sentPhone)
+		m.status = fmt.Sprintf(
+			"API %d / %s | %s | delivery: %s. Enter confirmation code.",
+			typed.result.AppID,
+			typed.result.AppHashPrefix,
+			typed.result.Phone,
+			typed.result.CodeDelivery,
+		)
 		m.input = newTextInput("", false)
 		return m, textinput.Blink
 	case authCodeDoneMsg:
@@ -287,7 +290,7 @@ func (m model) View() string {
 	case screenAuthLoading:
 		return fmt.Sprintf("%s %s\n\n%s\n\nEsc: back to menu", spinnerFrames[m.loadingIdx], m.loadingFor, m.status)
 	case screenAuthCode:
-		return m.viewInputScreen("Enter confirmation code")
+		return m.viewInputScreen("Enter confirmation code (check API/phone in status below)")
 	case screenAuthPassword:
 		return m.viewInputScreen("Enter 2FA password")
 	case screenWhitelistUserID:
@@ -402,8 +405,8 @@ func (m model) cmdBeginAuth() tea.Cmd {
 		if err != nil {
 			return authBeginDoneMsg{err: fmt.Errorf("app_id must be a number")}
 		}
-		sentPhone, err := m.authClient.BeginAuth(m.ctx, appID, appHash, phone)
-		return authBeginDoneMsg{phone: sentPhone, err: err}
+		sent, err := m.authClient.BeginAuth(m.ctx, appID, appHash, phone)
+		return authBeginDoneMsg{result: sent, err: err}
 	}
 }
 
@@ -501,14 +504,3 @@ func waitLogLine(ch <-chan string) tea.Cmd {
 }
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-
-func normalizePhoneDisplay(phone string) string {
-	phone = strings.TrimSpace(phone)
-	if phone == "" {
-		return phone
-	}
-	if !strings.HasPrefix(phone, "+") {
-		return "+" + phone
-	}
-	return phone
-}
