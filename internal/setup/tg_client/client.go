@@ -70,7 +70,9 @@ func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if appID <= 0 || strings.TrimSpace(appHash) == "" || strings.TrimSpace(phone) == "" {
+	appHash = strings.TrimSpace(appHash)
+	phone = normalizePhone(phone)
+	if appID <= 0 || appHash == "" || phone == "" {
 		return ErrInvalidCredentials
 	}
 
@@ -80,9 +82,14 @@ func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string
 	}
 	c.mu.Unlock()
 
+	// Always start from a clean session so entered app_id/app_hash/phone are used.
+	if err := c.clearSessionFiles(); err != nil {
+		return err
+	}
+
 	clientCtx, cancel := context.WithCancel(context.Background())
 
-	tgClient := telegram.NewClient(appID, strings.TrimSpace(appHash), telegram.Options{
+	tgClient := telegram.NewClient(appID, appHash, telegram.Options{
 		SessionStorage: &telegram.FileSessionStorage{Path: c.sessionPath},
 	})
 
@@ -102,10 +109,10 @@ func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string
 		cancel()
 		return err
 	case api := <-apiReady:
-		authClient := auth.NewClient(api, rand.Reader, appID, strings.TrimSpace(appHash))
+		authClient := auth.NewClient(api, rand.Reader, appID, appHash)
 
 		// Send the code immediately so the user can enter it next.
-		sent, err := authClient.SendCode(ctx, strings.TrimSpace(phone), auth.SendCodeOptions{})
+		sent, err := authClient.SendCode(ctx, phone, auth.SendCodeOptions{})
 		if err != nil {
 			cancel()
 			return err
@@ -123,8 +130,8 @@ func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string
 		c.runCancel = cancel
 		c.pending = &pendingCreds{
 			appID:    appID,
-			appHash:  strings.TrimSpace(appHash),
-			phone:    strings.TrimSpace(phone),
+			appHash:  appHash,
+			phone:    phone,
 			codeHash: sentCode.PhoneCodeHash,
 		}
 		c.mu.Unlock()
@@ -315,4 +322,29 @@ func (c *Client) savePendingMetaLocked() error {
 		AppHash: c.pending.appHash,
 		Phone:   c.pending.phone,
 	})
+}
+
+func normalizePhone(phone string) string {
+	phone = strings.TrimSpace(phone)
+	if phone == "" {
+		return phone
+	}
+	if !strings.HasPrefix(phone, "+") {
+		return "+" + phone
+	}
+	return phone
+}
+
+func (c *Client) clearSessionFiles() error {
+	paths := []string{
+		c.sessionPath,
+		c.sessionPath + "-journal",
+		c.metaPath(),
+	}
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }

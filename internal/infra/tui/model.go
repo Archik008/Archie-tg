@@ -129,7 +129,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.screen = screenAuthCode
-		m.status = "Enter confirmation code"
+		m.status = fmt.Sprintf("Code sent to %s. Enter confirmation code.", normalizePhoneDisplay(m.phone))
 		m.input = newTextInput("", false)
 		return m, textinput.Blink
 	case authCodeDoneMsg:
@@ -312,7 +312,11 @@ func (m model) onKey(msg tea.KeyMsg) (model, tea.Cmd) {
 			switch menuItem(m.menuCursor) {
 			case menuAuthorize:
 				m.screen = screenAuthAppID
-				m.status = "Step 1/5: app_id"
+				if m.authClient.SessionExists() {
+					m.status = "Step 1/5: app_id (existing session will be replaced)"
+				} else {
+					m.status = "Step 1/5: app_id"
+				}
 				m.appID, m.appHash, m.phone, m.code, m.password = "", "", "", "", ""
 				m.input = newTextInput("123456", false)
 				return m, textinput.Blink
@@ -480,3 +484,14 @@ func waitLogLine(ch <-chan string) tea.Cmd {
 }
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+func normalizePhoneDisplay(phone string) string {
+	phone = strings.TrimSpace(phone)
+	if phone == "" {
+		return phone
+	}
+	if !strings.HasPrefix(phone, "+") {
+		return "+" + phone
+	}
+	return phone
+}
