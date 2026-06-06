@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/archik008/archie-tg/internal/domain/ports/in"
 	setupclient "github.com/archik008/archie-tg/internal/setup/tg_client"
@@ -112,4 +113,21 @@ func (r *Runtime) IsRunning() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.runCancel != nil
+}
+
+// WaitStopped blocks until the bot loop has fully stopped.
+func (r *Runtime) WaitStopped(ctx context.Context) error {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if !r.IsRunning() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }

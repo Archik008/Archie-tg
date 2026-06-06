@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/auth"
@@ -25,16 +26,20 @@ var (
 // Client wraps a gotd Telegram userbot client.
 // It is safe to call from multiple goroutines.
 type Client struct {
+	sessionDir  string
 	sessionPath string
 
-	mu       sync.Mutex
-	pending  *pendingCreds
-	tgClient *telegram.Client
-	authAPI  *auth.Client
-	api      *tg.Client
+	mu        sync.Mutex
+	pending   *pendingCreds
+	activeRun *runHandle
+	tgClient  *telegram.Client
+	authAPI   *auth.Client
+	api       *tg.Client
+}
 
-	// runCancel stops the background client goroutine.
-	runCancel context.CancelFunc
+type runHandle struct {
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 type pendingCreds struct {
@@ -53,8 +58,14 @@ func NewClient(sessionDir string) (*Client, error) {
 		return nil, err
 	}
 	return &Client{
+		sessionDir:  sessionDir,
 		sessionPath: filepath.Join(sessionDir, "tg.session"),
 	}, nil
+}
+
+// SessionDir returns the directory where session files are stored.
+func (c *Client) SessionDir() string {
+	return c.sessionDir
 }
 
 // SessionExists reports whether a saved session file already exists.
@@ -63,40 +74,46 @@ func (c *Client) SessionExists() bool {
 	return err == nil
 }
 
+func (c *Client) pendingSessionPath() string {
+	return c.sessionPath + ".pending"
+}
+
 // BeginAuth builds the Telegram client for the given credentials, connects
-// to Telegram and sends an SMS code to the phone number.
-// After this returns without error the user should call SubmitCode.
-func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string) error {
+// to Telegram and sends a code to the phone number.
+// Returns the normalized phone that was sent to Telegram API.
+func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string) (string, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return "", err
 	}
 	appHash = strings.TrimSpace(appHash)
 	phone = normalizePhone(phone)
 	if appID <= 0 || appHash == "" || phone == "" {
-		return ErrInvalidCredentials
+		return "", ErrInvalidCredentials
 	}
 
-	c.mu.Lock()
-	if c.runCancel != nil {
-		c.runCancel()
-	}
-	c.mu.Unlock()
+	c.stopActiveRunAndWait()
 
-	// Always start from a clean session so entered app_id/app_hash/phone are used.
-	if err := c.clearSessionFiles(); err != nil {
-		return err
+	pendingPath := c.pendingSessionPath()
+	if err := c.removeSessionFiles(pendingPath); err != nil {
+		return "", err
 	}
 
 	clientCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	c.mu.Lock()
+	c.activeRun = &runHandle{cancel: cancel, done: done}
+	c.mu.Unlock()
 
 	tgClient := telegram.NewClient(appID, appHash, telegram.Options{
-		SessionStorage: &telegram.FileSessionStorage{Path: c.sessionPath},
+		SessionStorage: &telegram.FileSessionStorage{Path: pendingPath},
 	})
 
 	apiReady := make(chan *tg.Client, 1)
 	runErr := make(chan error, 1)
 
 	go func() {
+		defer close(done)
 		runErr <- tgClient.Run(clientCtx, func(ctx context.Context) error {
 			apiReady <- tgClient.API()
 			<-ctx.Done()
@@ -106,28 +123,31 @@ func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string
 
 	select {
 	case err := <-runErr:
-		cancel()
-		return err
+		c.finishRun(done)
+		_ = c.removeSessionFiles(pendingPath)
+		return "", err
 	case api := <-apiReady:
 		authClient := auth.NewClient(api, rand.Reader, appID, appHash)
 
-		// Send the code immediately so the user can enter it next.
-		sent, err := authClient.SendCode(ctx, phone, auth.SendCodeOptions{})
+		sendCtx, sendCancel := context.WithTimeout(context.Background(), 45*time.Second)
+		sent, err := authClient.SendCode(sendCtx, phone, auth.SendCodeOptions{})
+		sendCancel()
 		if err != nil {
-			cancel()
-			return err
+			c.stopActiveRunAndWait()
+			_ = c.removeSessionFiles(pendingPath)
+			return "", err
 		}
 		sentCode, ok := sent.(*tg.AuthSentCode)
 		if !ok {
-			cancel()
-			return errors.New("unexpected SendCode response type")
+			c.stopActiveRunAndWait()
+			_ = c.removeSessionFiles(pendingPath)
+			return "", errors.New("unexpected SendCode response type")
 		}
 
 		c.mu.Lock()
 		c.tgClient = tgClient
 		c.authAPI = authClient
 		c.api = api
-		c.runCancel = cancel
 		c.pending = &pendingCreds{
 			appID:    appID,
 			appHash:  appHash,
@@ -136,11 +156,12 @@ func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string
 		}
 		c.mu.Unlock()
 
-		return nil
+		return phone, nil
 
 	case <-ctx.Done():
-		cancel()
-		return ctx.Err()
+		c.stopActiveRunAndWait()
+		_ = c.removeSessionFiles(pendingPath)
+		return "", ctx.Err()
 	}
 }
 
@@ -171,15 +192,7 @@ func (c *Client) SubmitCode(ctx context.Context, code string) (requires2FA bool,
 		return false, err
 	}
 
-	c.mu.Lock()
-	if err := c.savePendingMetaLocked(); err != nil {
-		c.mu.Unlock()
-		return false, err
-	}
-	c.pending = nil
-	c.mu.Unlock()
-
-	return false, nil
+	return false, c.completeAuth(creds)
 }
 
 // SubmitPassword completes the 2FA step with the cloud password.
@@ -192,10 +205,11 @@ func (c *Client) SubmitPassword(ctx context.Context, password string) error {
 	}
 
 	c.mu.Lock()
+	creds := c.pending
 	authAPI := c.authAPI
 	c.mu.Unlock()
 
-	if authAPI == nil {
+	if creds == nil || authAPI == nil {
 		return ErrAuthNotStarted
 	}
 
@@ -203,31 +217,61 @@ func (c *Client) SubmitPassword(ctx context.Context, password string) error {
 		return err
 	}
 
-	c.mu.Lock()
-	if err := c.savePendingMetaLocked(); err != nil {
-		c.mu.Unlock()
+	return c.completeAuth(creds)
+}
+
+func (c *Client) completeAuth(creds *pendingCreds) error {
+	c.stopActiveRunAndWait()
+
+	if err := c.promotePendingSession(); err != nil {
 		return err
 	}
+	if err := c.SaveSessionMeta(SessionMeta{
+		AppID:   creds.appID,
+		AppHash: creds.appHash,
+		Phone:   creds.phone,
+	}); err != nil {
+		return err
+	}
+
+	c.mu.Lock()
 	c.pending = nil
 	c.mu.Unlock()
-
 	return nil
 }
 
-// ResetAuthFlow cancels any in-progress auth flow and shuts down the
-// background client connection if one was started.
+// ResetAuthFlow cancels any in-progress auth flow and removes pending session files.
 func (c *Client) ResetAuthFlow() {
+	c.stopActiveRunAndWait()
+	_ = c.removeSessionFiles(c.pendingSessionPath())
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	if c.runCancel != nil {
-		c.runCancel()
-		c.runCancel = nil
-	}
 	c.pending = nil
 	c.tgClient = nil
 	c.authAPI = nil
 	c.api = nil
+}
+
+// WaitIdle blocks until the active Telegram connection is fully stopped.
+func (c *Client) WaitIdle(ctx context.Context) error {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		c.mu.Lock()
+		running := c.activeRun != nil
+		c.mu.Unlock()
+		if !running {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 // API returns the low-level Telegram API client for use by adapters
@@ -240,12 +284,7 @@ func (c *Client) API() *tg.Client {
 
 // Close cleanly shuts down the background Telegram connection.
 func (c *Client) Close() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.runCancel != nil {
-		c.runCancel()
-		c.runCancel = nil
-	}
+	c.stopActiveRunAndWait()
 }
 
 // SessionHook is called after session is authorized and API is ready.
@@ -258,33 +297,57 @@ func (c *Client) RunSession(ctx context.Context, dispatcher tg.UpdateDispatcher,
 		return err
 	}
 
+	c.stopActiveRunAndWait()
+
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+
+	c.mu.Lock()
+	c.activeRun = &runHandle{cancel: cancel, done: done}
+	c.mu.Unlock()
+
 	tgClient := telegram.NewClient(meta.AppID, meta.AppHash, telegram.Options{
 		SessionStorage: &telegram.FileSessionStorage{Path: c.sessionPath},
 		UpdateHandler:  dispatcher,
 	})
 
-	return tgClient.Run(ctx, func(ctx context.Context) error {
-		api := tgClient.API()
+	var runErr error
+	go func() {
+		defer close(done)
+		runErr = tgClient.Run(runCtx, func(ctx context.Context) error {
+			api := tgClient.API()
 
-		c.mu.Lock()
-		c.tgClient = tgClient
-		c.api = api
-		c.mu.Unlock()
+			c.mu.Lock()
+			c.tgClient = tgClient
+			c.api = api
+			c.mu.Unlock()
 
-		status, err := tgClient.Auth().Status(ctx)
-		if err != nil {
-			return err
-		}
-		if !status.Authorized {
-			return errors.New("telegram session is not authorized")
-		}
+			status, err := tgClient.Auth().Status(ctx)
+			if err != nil {
+				return err
+			}
+			if !status.Authorized {
+				return errors.New("telegram session is not authorized")
+			}
 
-		if hook == nil {
-			<-ctx.Done()
-			return ctx.Err()
-		}
-		return hook(ctx, api)
-	})
+			if hook == nil {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			return hook(ctx, api)
+		})
+	}()
+
+	<-done
+
+	c.mu.Lock()
+	c.activeRun = nil
+	c.tgClient = nil
+	c.authAPI = nil
+	c.api = nil
+	c.mu.Unlock()
+
+	return runErr
 }
 
 // EnsureSelfUserID resolves and persists current Telegram account id.
@@ -313,15 +376,40 @@ func (c *Client) EnsureSelfUserID(ctx context.Context, api *tg.Client) (int64, e
 	return user.ID, nil
 }
 
-func (c *Client) savePendingMetaLocked() error {
-	if c.pending == nil {
-		return ErrAuthNotStarted
+func (c *Client) stopActiveRunAndWait() {
+	c.mu.Lock()
+	handle := c.activeRun
+	c.mu.Unlock()
+	if handle == nil {
+		return
 	}
-	return c.SaveSessionMeta(SessionMeta{
-		AppID:   c.pending.appID,
-		AppHash: c.pending.appHash,
-		Phone:   c.pending.phone,
-	})
+
+	handle.cancel()
+	<-handle.done
+
+	c.mu.Lock()
+	if c.activeRun == handle {
+		c.activeRun = nil
+	}
+	c.mu.Unlock()
+}
+
+func (c *Client) finishRun(done chan struct{}) {
+	<-done
+	c.mu.Lock()
+	c.activeRun = nil
+	c.mu.Unlock()
+}
+
+func (c *Client) promotePendingSession() error {
+	pending := c.pendingSessionPath()
+	if err := c.removeSessionFiles(c.sessionPath); err != nil {
+		return err
+	}
+	if err := os.Rename(pending, c.sessionPath); err != nil {
+		return err
+	}
+	return c.removeSessionFiles(pending)
 }
 
 func normalizePhone(phone string) string {
@@ -335,11 +423,10 @@ func normalizePhone(phone string) string {
 	return phone
 }
 
-func (c *Client) clearSessionFiles() error {
+func (c *Client) removeSessionFiles(basePath string) error {
 	paths := []string{
-		c.sessionPath,
-		c.sessionPath + "-journal",
-		c.metaPath(),
+		basePath,
+		basePath + "-journal",
 	}
 	for _, path := range paths {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {

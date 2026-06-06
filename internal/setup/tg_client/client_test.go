@@ -49,8 +49,11 @@ func TestClearSessionFilesRemovesSavedSession(t *testing.T) {
 		t.Fatalf("SaveSessionMeta: %v", err)
 	}
 
-	if err := client.clearSessionFiles(); err != nil {
-		t.Fatalf("clearSessionFiles: %v", err)
+	if err := client.removeSessionFiles(sessionPath); err != nil {
+		t.Fatalf("removeSessionFiles: %v", err)
+	}
+	if err := client.removeSessionFiles(metaPath); err != nil {
+		t.Fatalf("removeSessionFiles meta: %v", err)
 	}
 
 	if _, err := os.Stat(sessionPath); !os.IsNotExist(err) {

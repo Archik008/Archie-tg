@@ -69,7 +69,10 @@ type model struct {
 	logCh chan string
 }
 
-type authBeginDoneMsg struct{ err error }
+type authBeginDoneMsg struct {
+	phone string
+	err   error
+}
 type authCodeDoneMsg struct {
 	requires2FA bool
 	err         error
@@ -129,7 +132,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.screen = screenAuthCode
-		m.status = fmt.Sprintf("Code sent to %s. Enter confirmation code.", normalizePhoneDisplay(m.phone))
+		sentPhone := typed.phone
+		if sentPhone == "" {
+			sentPhone = normalizePhoneDisplay(m.phone)
+		}
+		m.status = fmt.Sprintf("Code sent to %s. Enter confirmation code.", sentPhone)
 		m.input = newTextInput("", false)
 		return m, textinput.Blink
 	case authCodeDoneMsg:
@@ -311,12 +318,21 @@ func (m model) onKey(msg tea.KeyMsg) (model, tea.Cmd) {
 		case "enter":
 			switch menuItem(m.menuCursor) {
 			case menuAuthorize:
-				m.screen = screenAuthAppID
-				if m.authClient.SessionExists() {
-					m.status = "Step 1/5: app_id (existing session will be replaced)"
-				} else {
-					m.status = "Step 1/5: app_id"
+				if m.bot != nil && m.bot.IsRunning() {
+					m.bot.Stop()
+					waitCtx, cancel := context.WithTimeout(m.ctx, 15*time.Second)
+					_ = m.bot.WaitStopped(waitCtx)
+					cancel()
 				}
+				m.authClient.ResetAuthFlow()
+				_ = m.authClient.WaitIdle(m.ctx)
+
+				m.screen = screenAuthAppID
+				sessionNote := ""
+				if m.authClient.SessionExists() {
+					sessionNote = " Existing session stays until login succeeds."
+				}
+				m.status = fmt.Sprintf("Step 1/5: app_id.%s Data: %s", sessionNote, m.authClient.SessionDir())
 				m.appID, m.appHash, m.phone, m.code, m.password = "", "", "", "", ""
 				m.input = newTextInput("123456", false)
 				return m, textinput.Blink
@@ -386,7 +402,8 @@ func (m model) cmdBeginAuth() tea.Cmd {
 		if err != nil {
 			return authBeginDoneMsg{err: fmt.Errorf("app_id must be a number")}
 		}
-		return authBeginDoneMsg{err: m.authClient.BeginAuth(m.ctx, appID, appHash, phone)}
+		sentPhone, err := m.authClient.BeginAuth(m.ctx, appID, appHash, phone)
+		return authBeginDoneMsg{phone: sentPhone, err: err}
 	}
 }
 

@@ -9,10 +9,12 @@ import (
 
 type AuthClient interface {
 	SessionExists() bool
-	BeginAuth(ctx context.Context, appID int, appHash, phone string) error
+	SessionDir() string
+	BeginAuth(ctx context.Context, appID int, appHash, phone string) (sentPhone string, err error)
 	SubmitCode(ctx context.Context, code string) (bool, error)
 	SubmitPassword(ctx context.Context, password string) error
 	ResetAuthFlow()
+	WaitIdle(ctx context.Context) error
 }
 
 type WhiteListClient interface {
@@ -23,6 +25,7 @@ type BotRunner interface {
 	Start(ctx context.Context, logs chan<- string) error
 	Stop()
 	IsRunning() bool
+	WaitStopped(ctx context.Context) error
 }
 
 func Run(ctx context.Context, authClient AuthClient, whitelistClient WhiteListClient, bot BotRunner) error {
