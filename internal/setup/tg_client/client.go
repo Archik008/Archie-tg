@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/auth"
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 )
 
 var (
@@ -93,6 +95,16 @@ func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string
 	result.Phone = phone
 	result.AppHashPrefix = maskAppHash(appHash)
 
+	if err := validatePhone(phone); err != nil {
+		c.writeAuthAudit(authAuditRecord{
+			AppID:         appID,
+			AppHashPrefix: result.AppHashPrefix,
+			Phone:         phone,
+			Error:         err.Error(),
+		})
+		return result, err
+	}
+
 	if err := validateAppCredentials(appID, appHash); err != nil {
 		c.writeAuthAudit(authAuditRecord{
 			AppID:         appID,
@@ -134,6 +146,7 @@ func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string
 	fail := func(err error) (BeginAuthResult, error) {
 		c.stopActiveRunAndWait()
 		c.clearAuthMemoryStore()
+		err = formatTelegramAuthError(err)
 		c.writeAuthAudit(authAuditRecord{
 			AppID:         appID,
 			AppHashPrefix: result.AppHashPrefix,
@@ -159,6 +172,7 @@ func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string
 
 		delivery := codeDeliveryMessage(sent)
 		result.CodeDelivery = delivery
+		result.CodeHint = codeDeliveryHint(sent)
 
 		switch sent.(type) {
 		case *tg.AuthSentCodeSuccess:
@@ -169,6 +183,15 @@ func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string
 		sentCode, ok := sent.(*tg.AuthSentCode)
 		if !ok {
 			return fail(errors.New("unexpected SendCode response type"))
+		}
+
+		if timeout, ok := sentCode.GetTimeout(); ok {
+			result.ResendAfter = timeout
+		}
+		if next, ok := sentCode.GetNextType(); ok {
+			if nextMsg := nextDeliveryMessage(next); nextMsg != "" {
+				result.CodeHint += fmt.Sprintf(" If nothing arrives in %d sec, next try: %s.", result.ResendAfter, nextMsg)
+			}
 		}
 
 		c.mu.Lock()
@@ -197,6 +220,75 @@ func (c *Client) BeginAuth(ctx context.Context, appID int, appHash, phone string
 		c.clearAuthMemoryStore()
 		return result, ctx.Err()
 	}
+}
+
+// ResendAuthCode asks Telegram to resend the login code using the next delivery method.
+func (c *Client) ResendAuthCode(ctx context.Context) (BeginAuthResult, error) {
+	c.mu.Lock()
+	creds := c.pending
+	authAPI := c.authAPI
+	c.mu.Unlock()
+
+	result := BeginAuthResult{}
+	if creds == nil || authAPI == nil {
+		return result, ErrAuthNotStarted
+	}
+
+	result.Phone = creds.phone
+	result.AppID = creds.appID
+	result.AppHashPrefix = maskAppHash(creds.appHash)
+
+	sent, err := authAPI.ResendCode(ctx, creds.phone, creds.codeHash)
+	if err != nil {
+		return result, formatTelegramAuthError(err)
+	}
+
+	result.CodeDelivery = codeDeliveryMessage(sent)
+	result.CodeHint = codeDeliveryHint(sent)
+
+	sentCode, ok := sent.(*tg.AuthSentCode)
+	if !ok {
+		return result, errors.New("unexpected ResendCode response type")
+	}
+
+	c.mu.Lock()
+	c.pending.codeHash = sentCode.PhoneCodeHash
+	c.mu.Unlock()
+
+	if timeout, ok := sentCode.GetTimeout(); ok {
+		result.ResendAfter = timeout
+	}
+	if next, ok := sentCode.GetNextType(); ok {
+		if nextMsg := nextDeliveryMessage(next); nextMsg != "" {
+			result.CodeHint += fmt.Sprintf(" If nothing arrives in %d sec, next try: %s.", result.ResendAfter, nextMsg)
+		}
+	}
+
+	return result, nil
+}
+
+func formatTelegramAuthError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if wait, ok := tgerr.AsFloodWait(err); ok {
+		return fmt.Errorf("telegram rate limit: wait %ds before trying again", int(wait.Seconds()))
+	}
+	if tgErr, ok := tgerr.As(err); ok {
+		switch tgErr.Type {
+		case "PHONE_NUMBER_INVALID":
+			return fmt.Errorf("invalid phone number format, use +79991234567 for Russia")
+		case "PHONE_NUMBER_BANNED":
+			return fmt.Errorf("this phone number is banned in Telegram")
+		case "PHONE_NUMBER_FLOOD":
+			return fmt.Errorf("too many attempts for this phone number, try later")
+		case "PHONE_CODE_EXPIRED":
+			return fmt.Errorf("code expired, start authorization again")
+		case "API_ID_INVALID", "API_ID_PUBLISHED_FLOOD":
+			return fmt.Errorf("invalid app_id/app_hash pair from my.telegram.org")
+		}
+	}
+	return err
 }
 
 // SubmitCode passes the received SMS/app code to Telegram.
@@ -458,17 +550,6 @@ func (c *Client) finishRun(done chan struct{}) {
 	c.mu.Lock()
 	c.activeRun = nil
 	c.mu.Unlock()
-}
-
-func normalizePhone(phone string) string {
-	phone = strings.TrimSpace(phone)
-	if phone == "" {
-		return phone
-	}
-	if !strings.HasPrefix(phone, "+") {
-		return "+" + phone
-	}
-	return phone
 }
 
 func (c *Client) removeSessionFiles(basePath string) error {

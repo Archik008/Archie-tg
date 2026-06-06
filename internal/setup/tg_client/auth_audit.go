@@ -17,6 +17,8 @@ type BeginAuthResult struct {
 	AppID         int
 	AppHashPrefix string
 	CodeDelivery  string
+	CodeHint      string
+	ResendAfter   int
 }
 
 type authAuditRecord struct {
@@ -71,12 +73,18 @@ func codeDeliveryMessage(sent tg.AuthSentCodeClass) string {
 	case *tg.AuthSentCode:
 		switch t := s.Type.(type) {
 		case *tg.AuthSentCodeTypeApp:
+			if t.Length > 0 {
+				return fmt.Sprintf("Telegram app (%d digits)", t.Length)
+			}
 			return "Telegram app"
 		case *tg.AuthSentCodeTypeSMS:
 			return "SMS"
 		case *tg.AuthSentCodeTypeCall:
 			return "phone call"
 		case *tg.AuthSentCodeTypeMissedCall:
+			if t.Prefix != "" {
+				return fmt.Sprintf("missed call, last digits %s", t.Prefix)
+			}
 			return "missed call"
 		case *tg.AuthSentCodeTypeFragmentSMS:
 			return "Fragment SMS"
@@ -87,5 +95,39 @@ func codeDeliveryMessage(sent tg.AuthSentCodeClass) string {
 		return "already authorized"
 	default:
 		return fmt.Sprintf("%T", sent)
+	}
+}
+
+func codeDeliveryHint(sent tg.AuthSentCodeClass) string {
+	switch s := sent.(type) {
+	case *tg.AuthSentCode:
+		switch s.Type.(type) {
+		case *tg.AuthSentCodeTypeApp:
+			return "Check Telegram app on a device with this account. Code is in chat from Telegram, not SMS."
+		case *tg.AuthSentCodeTypeSMS:
+			return "Check SMS on this phone."
+		case *tg.AuthSentCodeTypeCall, *tg.AuthSentCodeTypeMissedCall:
+			return "Wait for a call; the code is spoken or shown as missed-call digits."
+		default:
+			return "Wait for the code using the delivery method shown above."
+		}
+	default:
+		return ""
+	}
+}
+
+func nextDeliveryMessage(next tg.AuthCodeTypeClass) string {
+	if next == nil {
+		return ""
+	}
+	switch next.(type) {
+	case *tg.AuthCodeTypeSMS:
+		return "SMS"
+	case *tg.AuthCodeTypeCall:
+		return "phone call"
+	case *tg.AuthCodeTypeFlashCall:
+		return "flash call"
+	default:
+		return fmt.Sprintf("%T", next)
 	}
 }

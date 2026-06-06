@@ -74,6 +74,10 @@ type authBeginDoneMsg struct {
 	result setupclient.BeginAuthResult
 	err    error
 }
+type authResendDoneMsg struct {
+	result setupclient.BeginAuthResult
+	err    error
+}
 type authCodeDoneMsg struct {
 	requires2FA bool
 	err         error
@@ -127,21 +131,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.onKey(typed)
 	case authBeginDoneMsg:
-		if typed.err != nil {
-			m.status = "Initialization error: " + typed.err.Error()
-			m.screen = screenMenu
-			return m, nil
-		}
-		m.screen = screenAuthCode
-		m.status = fmt.Sprintf(
-			"API %d / %s | %s | delivery: %s. Enter confirmation code.",
-			typed.result.AppID,
-			typed.result.AppHashPrefix,
-			typed.result.Phone,
-			typed.result.CodeDelivery,
-		)
-		m.input = newTextInput("", false)
-		return m, textinput.Blink
+		return m.onAuthCodeReady(typed.result, typed.err)
+	case authResendDoneMsg:
+		return m.onAuthCodeReady(typed.result, typed.err)
 	case authCodeDoneMsg:
 		if typed.err != nil {
 			m.status = "Code error: " + typed.err.Error()
@@ -215,8 +207,47 @@ func (m model) handleInputKey(msg tea.KeyMsg) (model, tea.Cmd) {
 			return m, nil
 		}
 		return m.submitInput(value)
+	case "r":
+		if m.screen == screenAuthCode {
+			m.screen = screenAuthLoading
+			m.loadingFor = "Resending code..."
+			return m, tea.Batch(
+				tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg { return loadingTickMsg(t) }),
+				m.cmdResendAuthCode(),
+			)
+		}
 	}
 	return m, nil
+}
+
+func (m model) onAuthCodeReady(result setupclient.BeginAuthResult, err error) (model, tea.Cmd) {
+	if err != nil {
+		if m.screen == screenAuthLoading {
+			m.screen = screenAuthCode
+			m.status = "Auth error: " + err.Error()
+			m.input = newTextInput("", false)
+			return m, textinput.Blink
+		}
+		m.status = "Initialization error: " + err.Error()
+		m.screen = screenMenu
+		return m, nil
+	}
+
+	m.screen = screenAuthCode
+	status := fmt.Sprintf(
+		"API %d / %s | %s | delivery: %s.",
+		result.AppID,
+		result.AppHashPrefix,
+		result.Phone,
+		result.CodeDelivery,
+	)
+	if result.CodeHint != "" {
+		status += " " + result.CodeHint
+	}
+	status += " Press r to resend. Enter code below."
+	m.status = status
+	m.input = newTextInput("", false)
+	return m, textinput.Blink
 }
 
 func (m model) submitInput(value string) (model, tea.Cmd) {
@@ -231,7 +262,7 @@ func (m model) submitInput(value string) (model, tea.Cmd) {
 		m.appHash = value
 		m.screen = screenAuthPhone
 		m.status = "Step 3/5: phone"
-		m.input = newTextInput("+1234567890", false)
+		m.input = newTextInput("+79991234567", false)
 		return m, textinput.Blink
 	case screenAuthPhone:
 		m.phone = value
@@ -286,7 +317,7 @@ func (m model) View() string {
 	case screenAuthAppHash:
 		return m.viewInputScreen("Enter app_hash")
 	case screenAuthPhone:
-		return m.viewInputScreen("Enter phone number (e.g. +1234567890)")
+		return m.viewInputScreen("Enter phone (+79991234567 or 89991234567 for Russia)")
 	case screenAuthLoading:
 		return fmt.Sprintf("%s %s\n\n%s\n\nEsc: back to menu", spinnerFrames[m.loadingIdx], m.loadingFor, m.status)
 	case screenAuthCode:
@@ -407,6 +438,13 @@ func (m model) cmdBeginAuth() tea.Cmd {
 		}
 		sent, err := m.authClient.BeginAuth(m.ctx, appID, appHash, phone)
 		return authBeginDoneMsg{result: sent, err: err}
+	}
+}
+
+func (m model) cmdResendAuthCode() tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.authClient.ResendAuthCode(m.ctx)
+		return authResendDoneMsg{result: result, err: err}
 	}
 }
 

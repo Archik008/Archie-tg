@@ -12,6 +12,7 @@ type AuthClient interface {
 	SessionExists() bool
 	SessionDir() string
 	BeginAuth(ctx context.Context, appID int, appHash, phone string) (setupclient.BeginAuthResult, error)
+	ResendAuthCode(ctx context.Context) (setupclient.BeginAuthResult, error)
 	SubmitCode(ctx context.Context, code string) (bool, error)
 	SubmitPassword(ctx context.Context, password string) error
 	ResetAuthFlow()
